@@ -6,32 +6,61 @@
   import Modal from "./Modal.svelte";
 
   const AGENTS = [
-    { id: "claude", label: "Claude Code", available: true },
-    { id: "opencode", label: "OpenCode", available: false },
-  ];
+    {
+      id: "claude",
+      label: "Claude Code",
+      exe: "claude",
+      pathKey: "claudePath",
+      modelKey: "claudeModel",
+      modelHint: "Claude Code's default (e.g. sonnet, opus, haiku)",
+    },
+    {
+      id: "opencode",
+      label: "OpenCode",
+      exe: "opencode",
+      pathKey: "opencodePath",
+      modelKey: "opencodeModel",
+      modelHint: "OpenCode's default (provider/model, e.g. opencode/big-pickle)",
+    },
+  ] as const;
+  type Agent = (typeof AGENTS)[number];
 
-  // Text fields are saved when they lose focus; everything else applies immediately.
-  let claudePath = $state(app.settings.claudePath);
-  let model = $state(app.settings.model);
+  const agent = $derived(AGENTS.find((a) => a.id === app.settings.agent) ?? AGENTS[0]);
+
+  // Drafts of the text fields, saved when a field loses focus; everything else applies immediately.
+  let drafts = $state({
+    claudePath: app.settings.claudePath,
+    claudeModel: app.settings.claudeModel,
+    opencodePath: app.settings.opencodePath,
+    opencodeModel: app.settings.opencodeModel,
+  });
   let check = $state<{ ok: boolean; text: string } | null>(null);
   let checking = $state(false);
 
   const close = () => (app.settingsOpen = false);
 
   async function saveText() {
-    if (claudePath !== app.settings.claudePath || model !== app.settings.model) {
-      check = null;
-      await app.updateSettings({ claudePath: claudePath.trim(), model: model.trim() });
-    }
+    const changed = (Object.keys(drafts) as (keyof typeof drafts)[]).some(
+      (k) => drafts[k].trim() !== app.settings[k],
+    );
+    if (!changed) return;
+    check = null;
+    const trimmed = Object.fromEntries(Object.entries(drafts).map(([k, v]) => [k, v.trim()]));
+    await app.updateSettings(trimmed);
+  }
+
+  async function selectAgent(a: Agent) {
+    check = null;
+    await app.updateSettings({ agent: a.id });
   }
 
   async function browse() {
     const picked = await open({
-      title: "Choose the claude executable",
-      defaultPath: claudePath || undefined,
+      title: `Choose the ${agent.exe} executable`,
+      defaultPath: drafts[agent.pathKey] || undefined,
     });
     if (typeof picked === "string") {
-      claudePath = picked;
+      drafts[agent.pathKey] = picked;
       await saveText();
     }
   }
@@ -39,7 +68,7 @@
   async function runCheck() {
     checking = true;
     try {
-      check = { ok: true, text: await commands.checkAgent(claudePath) };
+      check = { ok: true, text: await commands.checkAgent(agent.id, drafts[agent.pathKey]) };
     } catch (e) {
       check = { ok: false, text: errorMessage(e) };
     }
@@ -101,33 +130,33 @@
     <section class="space-y-3">
       <h3 class="text-xs font-semibold tracking-wider text-muted uppercase">Coding agent</h3>
       <div class="flex gap-2">
-        {#each AGENTS as agent (agent.id)}
+        {#each AGENTS as a (a.id)}
           <label
             class="flex flex-1 items-center gap-2 rounded-lg border-2 bg-raised px-3 py-2 text-sm"
-            class:border-accent={app.settings.agent === agent.id}
-            class:border-transparent={app.settings.agent !== agent.id}
-            class:opacity-50={!agent.available}
+            class:border-accent={agent.id === a.id}
+            class:border-transparent={agent.id !== a.id}
           >
             <input
               type="radio"
               name="agent"
-              value={agent.id}
-              checked={app.settings.agent === agent.id}
-              disabled={!agent.available}
-              onchange={() => app.updateSettings({ agent: agent.id })}
+              value={a.id}
+              checked={agent.id === a.id}
+              onchange={() => selectAgent(a)}
             />
-            {agent.label}
-            {#if !agent.available}<span class="ml-auto text-xs text-muted">coming soon</span>{/if}
+            {a.label}
           </label>
         {/each}
       </div>
+      <p class="text-xs text-muted">
+        Used for new agent sessions. Tickets that already have a session keep their agent.
+      </p>
 
       <label class="block">
-        <span class="mb-1 block text-xs font-medium text-muted">Claude Code executable</span>
+        <span class="mb-1 block text-xs font-medium text-muted">{agent.label} executable</span>
         <div class="flex gap-2">
           <input
             class="min-w-0 flex-1 rounded-md border border-line bg-raised px-3 py-2 font-mono text-sm outline-none focus:border-accent"
-            bind:value={claudePath}
+            bind:value={drafts[agent.pathKey]}
             onblur={saveText}
             placeholder="Found on PATH"
           />
@@ -154,9 +183,9 @@
         <span class="mb-1 block text-xs font-medium text-muted">Model</span>
         <input
           class="w-full rounded-md border border-line bg-raised px-3 py-2 font-mono text-sm outline-none focus:border-accent"
-          bind:value={model}
+          bind:value={drafts[agent.modelKey]}
           onblur={saveText}
-          placeholder="Claude Code's default (e.g. sonnet, opus, haiku)"
+          placeholder={agent.modelHint}
         />
       </label>
 

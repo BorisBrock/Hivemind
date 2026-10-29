@@ -25,7 +25,7 @@ export const commands = {
 	cancelTicket: (id: number) => __TAURI_INVOKE<Ticket_Serialize>("cancel_ticket", { id }),
 	getUsage: () => __TAURI_INVOKE<Usage_Serialize>("get_usage"),
 	/**  Checks that the agent CLI can be found and runs; returns its version. */
-	checkAgent: (claudePath: string) => __TAURI_INVOKE<string>("check_agent", { claudePath }),
+	checkAgent: (agent: string, path: string) => __TAURI_INVOKE<string>("check_agent", { agent, path }),
 	getSettings: () => __TAURI_INVOKE<Settings_Serialize>("get_settings"),
 	saveSettings: (settings: Settings_Deserialize) => __TAURI_INVOKE<null>("save_settings", { settings }),
 };
@@ -123,21 +123,40 @@ export type Settings = Settings_Serialize | Settings_Deserialize;
 export type Settings_Deserialize = {
 	theme?: string,
 	palette?: string,
+	/**  Agent for new sessions: `claude` or `opencode`. */
 	agent?: string,
-	/**  Path of the `claude` executable; empty means "find it on PATH". */
+	/**  Paths of the agent executables; empty means "find it on PATH". */
 	claudePath?: string,
-	/**  Model passed to the agent (e.g. `sonnet`); empty means the agent's own default. */
+	opencodePath?: string,
+	opencodeModel?: string,
+} & ({
+	/**
+	 *  Models passed to the agents (e.g. `sonnet`, `opencode/big-pickle`); empty means the
+	 *  agent's own default.
+	 */
+	claudeModel?: string,
+} & {
+	/**
+	 *  Models passed to the agents (e.g. `sonnet`, `opencode/big-pickle`); empty means the
+	 *  agent's own default.
+	 */
 	model?: string,
-};
+});
 
 export type Settings_Serialize = {
 	theme: string,
 	palette: string,
+	/**  Agent for new sessions: `claude` or `opencode`. */
 	agent: string,
-	/**  Path of the `claude` executable; empty means "find it on PATH". */
+	/**  Paths of the agent executables; empty means "find it on PATH". */
 	claudePath: string,
-	/**  Model passed to the agent (e.g. `sonnet`); empty means the agent's own default. */
-	model: string,
+	opencodePath: string,
+	/**
+	 *  Models passed to the agents (e.g. `sonnet`, `opencode/big-pickle`); empty means the
+	 *  agent's own default.
+	 */
+	claudeModel: string,
+	opencodeModel: string,
 };
 
 export type Ticket = Ticket_Serialize | Ticket_Deserialize;
@@ -197,6 +216,8 @@ export type Ticket_Deserialize = {
 	status: TicketStatus,
 	position: number | null,
 	agentSessionId?: string | null,
+	/**  The agent that owns `agent_session_id`. */
+	agent?: string | null,
 	pendingPrompt?: string | null,
 	createdAt: string,
 	updatedAt: string,
@@ -210,6 +231,8 @@ export type Ticket_Serialize = {
 	status: TicketStatus,
 	position: number | null,
 	agentSessionId: string | null,
+	/**  The agent that owns `agent_session_id`. */
+	agent: string | null,
 	pendingPrompt: string | null,
 	createdAt: string,
 	updatedAt: string,

@@ -310,9 +310,10 @@ pub async fn set_status(db: &SqlitePool, id: i64, status: TicketStatus) -> AppRe
     get_ticket(db, id).await
 }
 
-pub async fn set_session(db: &SqlitePool, id: i64, session_id: &str) -> AppResult<()> {
-    sqlx::query("UPDATE tickets SET agent_session_id = ? WHERE id = ?")
+pub async fn set_session(db: &SqlitePool, id: i64, session_id: &str, agent: &str) -> AppResult<()> {
+    sqlx::query("UPDATE tickets SET agent_session_id = ?, agent = ? WHERE id = ?")
         .bind(session_id)
+        .bind(agent)
         .bind(id)
         .execute(db)
         .await?;
@@ -341,7 +342,7 @@ pub async fn send_back_to_ready(db: &SqlitePool, id: i64, comment: &str) -> AppR
 /// Back to Planning after a cancel; the next run starts a fresh session.
 pub async fn reset_to_planning(db: &SqlitePool, id: i64) -> AppResult<Ticket> {
     sqlx::query(
-        "UPDATE tickets SET status = 'planning', agent_session_id = NULL, pending_prompt = NULL,
+        "UPDATE tickets SET status = 'planning', agent_session_id = NULL, agent = NULL, pending_prompt = NULL,
          position = ?, updated_at = ? WHERE id = ?",
     )
     .bind(end_of_column(db, TicketStatus::Planning).await?)
@@ -603,7 +604,7 @@ mod tests {
         let t = ticket(&db, p.id, "t").await;
         move_ticket(&db, t.id, TicketStatus::Ready, None).await.unwrap();
         claim_next_ready(&db, p.id).await.unwrap().unwrap();
-        set_session(&db, t.id, "sess-1").await.unwrap();
+        set_session(&db, t.id, "sess-1", "claude").await.unwrap();
         set_status(&db, t.id, TicketStatus::Done).await.unwrap();
 
         assert!(send_back_to_ready(&db, t.id, "  ").await.is_err(), "comment required");
@@ -660,6 +661,22 @@ mod tests {
             (1500, 75, 0.75)
         );
         assert_eq!(usage.limits, limits);
+    }
+
+    #[tokio::test]
+    async fn older_settings_keep_their_values() {
+        let db = db::open_in_memory().await.unwrap();
+        // As saved by Phase 4, before per-agent models.
+        sqlx::query("INSERT INTO settings (key, value) VALUES ('app', ?)")
+            .bind(r#"{"theme":"nord","palette":"vivid","agent":"claude","claudePath":"","model":"haiku"}"#)
+            .execute(&db)
+            .await
+            .unwrap();
+        let s = get_settings(&db).await.unwrap();
+        assert_eq!(
+            (s.theme.as_str(), s.claude_model.as_str(), s.opencode_model.as_str()),
+            ("nord", "haiku", "")
+        );
     }
 
     #[tokio::test]

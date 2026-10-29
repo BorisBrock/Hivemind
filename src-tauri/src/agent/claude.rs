@@ -1,28 +1,21 @@
 //! Claude Code backend: drives `claude -p` in bidirectional stream-JSON mode.
 //! See `spikes/agent-spike/FINDINGS.md` for the protocol details this relies on.
 
-use std::collections::{HashSet, VecDeque};
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
-use std::sync::{Arc, Mutex};
 
-use command_group::AsyncCommandGroup;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::{mpsc, oneshot};
 
-use super::{AgentBackend, AgentEvent, Run, RunRequest, mcp, process};
-use crate::error::{AppError, AppResult};
+use super::process::{self, Spawned};
+use super::{
+    AgentBackend, AgentEvent, INSTRUCTIONS, MAX_SUMMARY, MAX_TOOL_OUTPUT, Run, RunRequest, mcp, truncate,
+};
+use crate::error::AppResult;
 use crate::models::{EventData, UsageLimits, UsageWindow};
 
-const SYSTEM_PROMPT: &str = "You are running unattended inside Workzone, a task board. Nobody watches \
-your output live. When you need a decision or information from the user, call the `ask_user` tool \
-with your question (and answer options if useful), then end your turn immediately. Do not ask \
-questions in plain text. When you are done, end with a short summary of what you changed.";
-
-/// Tool output beyond this many bytes is cut off in the transcript.
-const MAX_TOOL_OUTPUT: usize = 8_000;
-const MAX_SUMMARY: usize = 200;
+const LABEL: &str = "Claude Code";
 
 pub struct ClaudeBackend {
     /// Written once at start-up; points Claude at our own binary as the `ask_user` MCP server.
@@ -43,12 +36,12 @@ impl ClaudeBackend {
     }
 
     fn command(&self, request: &RunRequest) -> AppResult<tokio::process::Command> {
-        let mut cmd = base_command(&find_claude(request.options.binary.as_deref())?);
+        let mut cmd = process::base_command(&find(request.options.binary.as_deref())?);
         cmd.current_dir(&request.cwd)
             .args(["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose"])
             .args(["--permission-mode", "bypassPermissions", "--strict-mcp-config", "--mcp-config"])
             .arg(&self.mcp_config)
-            .args(["--append-system-prompt", SYSTEM_PROMPT]);
+            .args(["--append-system-prompt", INSTRUCTIONS]);
         if let Some(model) =
             request.options.model.clone().or_else(|| std::env::var("WORKZONE_CLAUDE_MODEL").ok())
         {
@@ -57,121 +50,51 @@ impl ClaudeBackend {
         if let Some(session) = &request.resume {
             cmd.args(["--resume", session]);
         }
-        cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
         Ok(cmd)
     }
 }
 
-fn base_command(binary: &Path) -> tokio::process::Command {
-    // npm installs a `claude.cmd` shim on Windows, which can only run through cmd.exe.
-    let is_script =
-        binary.extension().is_some_and(|e| e.eq_ignore_ascii_case("cmd") || e.eq_ignore_ascii_case("bat"));
-    if is_script {
-        let mut c = tokio::process::Command::new("cmd");
-        c.arg("/C").arg(binary);
-        c
-    } else {
-        tokio::process::Command::new(binary)
-    }
-}
-
 /// The configured path, else `WORKZONE_CLAUDE_BIN`, else `claude` from PATH.
-fn find_claude(configured: Option<&Path>) -> AppResult<PathBuf> {
-    if let Some(path) = configured {
-        return if path.is_file() {
-            Ok(path.into())
-        } else {
-            Err(AppError::Invalid { message: format!("Claude Code not found at {}", path.display()) })
-        };
-    }
-    if let Some(bin) = std::env::var_os("WORKZONE_CLAUDE_BIN") {
-        return Ok(bin.into());
-    }
-    which::which("claude").map_err(|_| AppError::Invalid {
-        message: "Claude Code was not found on PATH. Install it (https://claude.com/claude-code) \
-                  or set its path in Settings."
-            .into(),
-    })
+fn find(configured: Option<&Path>) -> AppResult<PathBuf> {
+    process::find_binary(
+        LABEL,
+        configured,
+        "WORKZONE_CLAUDE_BIN",
+        "claude",
+        &[],
+        "https://claude.com/claude-code",
+    )
 }
 
 /// Runs `claude --version` to check the setup; returns the version line.
 pub async fn check(configured: Option<&Path>) -> AppResult<String> {
-    let binary = find_claude(configured)?;
-    let mut cmd = base_command(&binary);
-    cmd.arg("--version");
-    #[cfg(windows)]
-    cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-    let out = tokio::time::timeout(std::time::Duration::from_secs(15), cmd.output())
-        .await
-        .map_err(|_| AppError::Invalid { message: "`claude --version` did not answer".into() })?
-        .map_err(|e| AppError::Invalid { message: format!("could not run {}: {e}", binary.display()) })?;
-    let text = String::from_utf8_lossy(if out.status.success() { &out.stdout } else { &out.stderr });
-    let line = text.lines().next().unwrap_or_default().trim().to_string();
-    if out.status.success() {
-        Ok(format!("{line} ({})", binary.display()))
-    } else {
-        Err(AppError::Invalid { message: format!("{} failed: {line}", binary.display()) })
-    }
+    process::version(&find(configured)?).await
 }
 
 impl AgentBackend for ClaudeBackend {
     fn start(&self, request: RunRequest) -> AppResult<Run> {
-        if !request.cwd.is_dir() {
-            return Err(AppError::Invalid {
-                message: format!("project folder not found: {}", request.cwd.display()),
-            });
-        }
-        let mut cmd = self.command(&request)?;
-        let mut group = cmd.group();
-        #[cfg(windows)]
-        group.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-        let mut child = group
-            .spawn()
-            .map_err(|e| AppError::Invalid { message: format!("could not start Claude Code: {e}") })?;
-        let stdin = child.inner().stdin.take().expect("stdin is piped");
-        let stdout = child.inner().stdout.take().expect("stdout is piped");
-        let stderr = child.inner().stderr.take().expect("stderr is piped");
-
+        let spawned = process::spawn(LABEL, &request.cwd, self.command(&request)?)?;
         let (tx, rx) = mpsc::channel(256);
         let (cancel_tx, cancel_rx) = oneshot::channel();
-        tokio::spawn(drive(child, stdin, stdout, stderr, request.prompt, tx, cancel_rx));
+        tokio::spawn(drive(spawned, request.prompt, tx, cancel_rx));
         Ok(Run { events: rx, cancel: cancel_tx })
     }
 }
 
 async fn drive(
-    mut child: command_group::AsyncGroupChild,
-    mut stdin: tokio::process::ChildStdin,
-    stdout: tokio::process::ChildStdout,
-    stderr: tokio::process::ChildStderr,
+    spawned: Spawned,
     prompt: String,
     tx: mpsc::Sender<AgentEvent>,
     mut cancel: oneshot::Receiver<oneshot::Sender<()>>,
 ) {
-    // Keep the last lines of stderr for error messages.
-    let stderr_tail = Arc::new(Mutex::new(VecDeque::<String>::new()));
-    let tail = stderr_tail.clone();
-    tokio::spawn(async move {
-        let mut lines = BufReader::new(stderr).lines();
-        while let Ok(Some(line)) = lines.next_line().await {
-            let mut t = tail.lock().unwrap();
-            t.push_back(line);
-            if t.len() > 20 {
-                t.pop_front();
-            }
-        }
-    });
-
+    let Spawned { mut child, stdin, stdout, stderr } = spawned;
+    let mut stdin = Some(stdin);
     let message = json!({ "type": "user", "message": { "role": "user", "content": prompt } });
-    let mut stdin = match stdin.write_all(format!("{message}\n").as_bytes()).await {
-        Ok(()) => Some(stdin),
-        Err(e) => {
-            let _ =
-                tx.send(AgentEvent::Exited { error: Some(format!("could not send the prompt: {e}")) }).await;
-            process::kill_tree(&mut child).await;
-            return;
-        }
-    };
+    if let Err(e) = stdin.as_mut().unwrap().write_all(format!("{message}\n").as_bytes()).await {
+        let _ = tx.send(AgentEvent::Exited { error: Some(format!("could not send the prompt: {e}")) }).await;
+        process::kill_tree(&mut child).await;
+        return;
+    }
 
     let mut parser = StreamParser::default();
     let mut saw_result = false;
@@ -204,14 +127,7 @@ async fn drive(
     let status = child.wait().await;
     let error = match status {
         Ok(s) if s.success() && saw_result => None,
-        other => {
-            let tail: Vec<String> = stderr_tail.lock().unwrap().iter().cloned().collect();
-            let reason = match other {
-                Ok(s) => format!("Claude Code exited unexpectedly ({s})"),
-                Err(e) => format!("Claude Code failed: {e}"),
-            };
-            Some(if tail.is_empty() { reason } else { format!("{reason}:\n{}", tail.join("\n")) })
-        }
+        other => Some(stderr.failure(LABEL, other)),
     };
     let _ = tx.send(AgentEvent::Exited { error }).await;
 }
@@ -359,14 +275,6 @@ fn tool_result_text(content: &Value) -> String {
         Value::Array(parts) => parts.iter().filter_map(|p| p["text"].as_str()).collect::<Vec<_>>().join("\n"),
         _ => String::new(),
     }
-}
-
-fn truncate(s: &str, max: usize) -> String {
-    if s.len() <= max {
-        return s.to_string();
-    }
-    let cut = (0..=max).rev().find(|i| s.is_char_boundary(*i)).unwrap_or(0);
-    format!("{}… [{} more bytes]", &s[..cut], s.len() - cut)
 }
 
 #[cfg(test)]

@@ -13,7 +13,7 @@ use tokio::sync::{mpsc, oneshot};
 
 use super::{AgentBackend, AgentEvent, RunRequest};
 use crate::error::{AppError, AppResult, invalid};
-use crate::models::{EventData, Ticket, TicketEvent, TicketStatus, Usage};
+use crate::models::{AgentOptions, EventData, Ticket, TicketEvent, TicketStatus, Usage};
 use crate::repo;
 
 /// Tells the UI about changes the agent manager makes.
@@ -155,11 +155,17 @@ impl AgentManager {
                 .await?;
         }
         self.record(ticket.id, EventData::UserPrompt { text: prompt.clone() }).await?;
-        let options = (&repo::get_settings(&self.db).await?).into();
+        let settings = repo::get_settings(&self.db).await?;
+        // A session can only be continued by the agent that started it.
+        let agent = match (&resume, &ticket.agent) {
+            (Some(_), Some(agent)) => agent.clone(),
+            _ => settings.agent.clone(),
+        };
+        let options = AgentOptions::for_agent(&settings, &agent);
         match self.backend.start(RunRequest { cwd, prompt, resume, options }) {
             Ok(run) => {
                 self.runs.lock().unwrap().insert(ticket.id, run.cancel);
-                tokio::spawn(self.clone().follow(ticket.id, run.events));
+                tokio::spawn(self.clone().follow(ticket.id, agent, run.events));
             }
             Err(e) => {
                 self.record(ticket.id, EventData::Error { message: e.to_string() }).await?;
@@ -170,8 +176,8 @@ impl AgentManager {
     }
 
     /// Records a run's events and moves the ticket on when the run ends.
-    async fn follow(self: Arc<Self>, ticket_id: i64, mut events: mpsc::Receiver<AgentEvent>) {
-        if let Err(e) = self.follow_inner(ticket_id, &mut events).await {
+    async fn follow(self: Arc<Self>, ticket_id: i64, agent: String, mut events: mpsc::Receiver<AgentEvent>) {
+        if let Err(e) = self.follow_inner(ticket_id, &agent, &mut events).await {
             // Database trouble: make sure the ticket doesn't stay "running" forever.
             let _ = self.record(ticket_id, EventData::Error { message: e.to_string() }).await;
             if self.runs.lock().unwrap().remove(&ticket_id).is_some() {
@@ -183,6 +189,7 @@ impl AgentManager {
     async fn follow_inner(
         self: &Arc<Self>,
         ticket_id: i64,
+        agent: &str,
         events: &mut mpsc::Receiver<AgentEvent>,
     ) -> AppResult<()> {
         let mut asked = false;
@@ -191,7 +198,7 @@ impl AgentManager {
         let mut exit_error = None;
         while let Some(event) = events.recv().await {
             match event {
-                AgentEvent::Session(id) => repo::set_session(&self.db, ticket_id, &id).await?,
+                AgentEvent::Session(id) => repo::set_session(&self.db, ticket_id, &id, agent).await?,
                 AgentEvent::Transcript(data) => {
                     asked |= matches!(data, EventData::Question { .. });
                     failed |= matches!(data, EventData::TurnResult { is_error: true, .. });
@@ -396,6 +403,35 @@ mod tests {
         assert_eq!(e.status(t).await, TicketStatus::InProgress);
         let last = e.fake.requests().pop().unwrap();
         assert_eq!((last.prompt.as_str(), last.resume.as_deref()), ("B", Some("s-1")));
+    }
+
+    #[tokio::test]
+    async fn sessions_continue_with_the_agent_that_started_them() {
+        let e = env().await;
+        let p = e.project().await;
+        let t = e.ready(p, "task").await;
+        let question = EventData::Question { question: "?".into(), options: vec![] };
+        e.fake.finish(0, vec![AgentEvent::Session("s-1".into()), AgentEvent::Transcript(question)]).await;
+        e.wait_for(t, TicketStatus::NeedsInput).await;
+
+        let mut settings = repo::get_settings(&e.db).await.unwrap();
+        settings.agent = "opencode".into();
+        settings.opencode_model = "opencode/big-pickle".into();
+        repo::save_settings(&e.db, &settings).await.unwrap();
+
+        e.manager.reply(t, "go on").await.unwrap();
+        let other = e.ready(e.project().await, "new").await;
+        assert_eq!(e.status(other).await, TicketStatus::InProgress);
+        let agents: Vec<_> =
+            e.fake.requests().into_iter().map(|r| (r.options.agent, r.options.model)).collect();
+        assert_eq!(
+            agents,
+            [
+                ("claude".into(), None),
+                ("claude".into(), None),
+                ("opencode".into(), Some("opencode/big-pickle".into()))
+            ]
+        );
     }
 
     #[tokio::test]

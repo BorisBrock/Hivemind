@@ -119,9 +119,9 @@ pub async fn get_usage(db: Db<'_>) -> AppResult<Usage> {
 /// Checks that the agent CLI can be found and runs; returns its version.
 #[tauri::command]
 #[specta::specta]
-pub async fn check_agent(claude_path: String) -> AppResult<String> {
-    let path = Some(claude_path.trim()).filter(|p| !p.is_empty()).map(std::path::Path::new);
-    crate::agent::claude::check(path).await
+pub async fn check_agent(agent: String, path: String) -> AppResult<String> {
+    let path = Some(path.trim()).filter(|p| !p.is_empty()).map(std::path::Path::new);
+    crate::agent::check(&agent, path).await
 }
 
 #[tauri::command]

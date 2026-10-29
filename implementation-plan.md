@@ -78,7 +78,7 @@ Planning ──user──▶ Ready ──scheduler──▶ InProgress ──age
 - Ticket view: CodeMirror markdown editor in Planning, read-only transcript afterwards.
 
 ### Phase 3 – Claude Code agent integration (MVP core) ✅
-*Done. Done → Ready is not a drag move any more: it needs a comment (the next prompt) and lives in the ticket view. Real end-to-end tests: `WORKZONE_CLAUDE_MODEL=haiku cargo test e2e -- --ignored --test-threads 1` (after `cargo build`).*
+*Done. Done → Ready is not a drag move any more: it needs a comment (the next prompt) and lives in the ticket view. Real end-to-end tests: `WORKZONE_CLAUDE_MODEL=haiku WORKZONE_OPENCODE_MODEL=opencode/big-pickle cargo test agent::e2e -- --ignored --test-threads 1` (after `cargo build`).*
 - `AgentBackend` trait: `start(ticket) / send(input) / answer_permission(id, decision) / cancel() / events() -> Stream<TicketEvent>`.
 - `ClaudeCodeBackend` built on the Phase 0 spike; persist every event as it arrives, stream it to the UI over a Channel.
 - Scheduler + state transitions, activity indicator per project.
@@ -92,8 +92,9 @@ Planning ──user──▶ Ready ──scheduler──▶ InProgress ──age
 - Settings dialog: theme, palette, default agent, binary paths (with a notice that agents run fully autonomous).
 - Status bar: running sessions, tokens/cost per session and per week (from `result` messages).
 
-### Phase 5 – OpenCode backend
-- `OpenCodeBackend` via `opencode serve` + SSE, mapped onto the same events and states.
+### Phase 5 – OpenCode backend ✅
+*Done, via `opencode run --format json` (one process per turn, prompt on stdin, `--session` to continue, `--dir` for the project folder) instead of `opencode serve`. `ask_user` and the instructions are injected with `OPENCODE_CONFIG_CONTENT`. Each ticket remembers which agent owns its session. Needs OpenCode ≥ 1.18 for the free models. OpenCode reports a tool call only when it has finished, so long commands appear in the transcript afterwards.*
+- `OpenCodeBackend`, mapped onto the same events and states.
 
 ### Phase 6 – Polish
 - Keyboard shortcuts, search/filter, notifications when a ticket reaches Needs Input/Done, packaging (AppImage/deb for Linux, NSIS/MSI for Windows), auto-update.

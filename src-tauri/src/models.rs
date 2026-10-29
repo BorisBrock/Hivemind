@@ -66,6 +66,8 @@ pub struct Ticket {
     pub status: TicketStatus,
     pub position: f64,
     pub agent_session_id: Option<String>,
+    /// The agent that owns `agent_session_id`.
+    pub agent: Option<String>,
     pub pending_prompt: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -150,11 +152,16 @@ pub struct TicketPatch {
 pub struct Settings {
     pub theme: String,
     pub palette: String,
+    /// Agent for new sessions: `claude` or `opencode`.
     pub agent: String,
-    /// Path of the `claude` executable; empty means "find it on PATH".
+    /// Paths of the agent executables; empty means "find it on PATH".
     pub claude_path: String,
-    /// Model passed to the agent (e.g. `sonnet`); empty means the agent's own default.
-    pub model: String,
+    pub opencode_path: String,
+    /// Models passed to the agents (e.g. `sonnet`, `opencode/big-pickle`); empty means the
+    /// agent's own default.
+    #[serde(alias = "model")]
+    pub claude_model: String,
+    pub opencode_model: String,
 }
 
 impl Default for Settings {
@@ -164,7 +171,9 @@ impl Default for Settings {
             palette: "vivid".into(),
             agent: "claude".into(),
             claude_path: String::new(),
-            model: String::new(),
+            opencode_path: String::new(),
+            claude_model: String::new(),
+            opencode_model: String::new(),
         }
     }
 }
@@ -199,16 +208,21 @@ pub struct Usage {
     pub week_cost_usd: f64,
 }
 
-/// How to run the agent, taken from the settings at the start of each run.
+/// How to run an agent, taken from the settings at the start of each run.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct AgentOptions {
+    pub agent: String,
     pub binary: Option<std::path::PathBuf>,
     pub model: Option<String>,
 }
 
-impl From<&Settings> for AgentOptions {
-    fn from(s: &Settings) -> Self {
+impl AgentOptions {
+    pub fn for_agent(s: &Settings, agent: &str) -> Self {
         let set = |v: &str| Some(v.trim()).filter(|v| !v.is_empty()).map(String::from);
-        Self { binary: set(&s.claude_path).map(Into::into), model: set(&s.model) }
+        let (path, model) = match agent {
+            "opencode" => (&s.opencode_path, &s.opencode_model),
+            _ => (&s.claude_path, &s.claude_model),
+        };
+        Self { agent: agent.into(), binary: set(path).map(Into::into), model: set(model) }
     }
 }

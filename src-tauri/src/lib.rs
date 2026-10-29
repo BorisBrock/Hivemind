@@ -13,6 +13,7 @@ use tauri_specta::{Builder, ErrorHandlingMode, collect_commands, collect_events}
 
 use agent::claude::ClaudeBackend;
 use agent::manager::AgentManager;
+use agent::opencode::OpenCodeBackend;
 
 const BINDINGS_PATH: &str = "../src/lib/bindings.ts";
 
@@ -74,7 +75,11 @@ pub fn run() {
             let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;
             let pool = tauri::async_runtime::block_on(db::open(&dir.join("workzone.db")))?;
-            let backend = Arc::new(ClaudeBackend::new(&dir, &std::env::current_exe()?)?);
+            let exe = std::env::current_exe()?;
+            let backend = Arc::new(agent::Agents {
+                claude: ClaudeBackend::new(&dir, &exe)?,
+                opencode: OpenCodeBackend::new(&dir, &exe)?,
+            });
             let notifier = Arc::new(events::TauriNotifier(app.handle().clone()));
             let agents = AgentManager::new(pool.clone(), backend, notifier);
             tauri::async_runtime::block_on(agents.recover())?;

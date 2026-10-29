@@ -1,14 +1,19 @@
 //! End-to-end runs against the real Claude Code CLI. They cost tokens, so they are ignored
 //! by default. Run with (after `cargo build`, which provides the MCP server binary):
 //!
-//!     WORKZONE_CLAUDE_MODEL=haiku cargo test e2e -- --ignored --nocapture --test-threads 1
+//!     WORKZONE_CLAUDE_MODEL=haiku WORKZONE_OPENCODE_MODEL=opencode/big-pickle \
+//!         cargo test agent::e2e -- --ignored --nocapture --test-threads 1
+//!
+//! Each scenario runs once per agent (`agent::e2e::claude::*`, `agent::e2e::opencode::*`).
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use super::Agents;
 use super::claude::ClaudeBackend;
 use super::manager::{AgentManager, Notifier};
+use super::opencode::OpenCodeBackend;
 use crate::db;
 use crate::models::*;
 use crate::repo;
@@ -34,7 +39,7 @@ struct Env {
     project_id: i64,
 }
 
-async fn env(name: &str) -> Env {
+async fn env(name: &str, agent: &str) -> Env {
     let mcp_exe = Path::new(env!("CARGO_MANIFEST_DIR")).join("target/debug/workzone");
     assert!(mcp_exe.exists(), "run `cargo build` first: the MCP server is the app binary");
     let base = std::env::temp_dir().join(format!("workzone-e2e-{name}-{}", std::process::id()));
@@ -42,8 +47,13 @@ async fn env(name: &str) -> Env {
     std::fs::create_dir_all(&project_dir).unwrap();
 
     let db = db::open_in_memory().await.unwrap();
-    let backend = Arc::new(ClaudeBackend::new(&base, &mcp_exe).unwrap());
+    let backend = Arc::new(Agents {
+        claude: ClaudeBackend::new(&base, &mcp_exe).unwrap(),
+        opencode: OpenCodeBackend::new(&base, &mcp_exe).unwrap(),
+    });
     let agents = AgentManager::new(db.clone(), backend, Arc::new(PrintNotifier));
+    let settings = Settings { agent: agent.into(), ..Default::default() };
+    repo::save_settings(&db, &settings).await.unwrap();
     let path = project_dir.to_string_lossy().into_owned();
     let project_id = repo::create_project(&db, NewProject { name: name.into(), path, color_index: None })
         .await
@@ -83,23 +93,23 @@ impl Env {
     }
 }
 
-#[tokio::test(flavor = "multi_thread")]
-#[ignore = "runs the real Claude Code CLI"]
-async fn e2e_simple_task_finishes() {
-    let e = env("simple").await;
+async fn simple_task_finishes(agent: &str) {
+    let e = env("simple", agent).await;
     let id =
         e.start("Create a file hello.txt containing exactly the word hello. Do not ask questions.").await;
     e.wait_for(id, TicketStatus::Done).await;
     assert_eq!(std::fs::read_to_string(e.project_dir.join("hello.txt")).unwrap().trim(), "hello");
     let events = repo::list_events(&e.db, id).await.unwrap();
-    assert!(events.iter().any(|ev| matches!(&ev.data, EventData::ToolUse { name, .. } if name == "Write")));
+    assert!(
+        events.iter().any(
+            |ev| matches!(&ev.data, EventData::ToolUse { name, .. } if name.eq_ignore_ascii_case("write"))
+        )
+    );
     assert!(events.iter().any(|ev| matches!(ev.data, EventData::TurnResult { is_error: false, .. })));
 }
 
-#[tokio::test(flavor = "multi_thread")]
-#[ignore = "runs the real Claude Code CLI"]
-async fn e2e_question_and_reply() {
-    let e = env("question").await;
+async fn question_and_reply(agent: &str) {
+    let e = env("question", agent).await;
     let id = e
         .start(
             "Before doing anything, ask me which programming language I want. \
@@ -116,31 +126,46 @@ async fn e2e_question_and_reply() {
     assert!(files.iter().any(|f| f.path().extension().is_some_and(|x| x == "py")), "a .py file: {files:?}");
 }
 
-#[tokio::test(flavor = "multi_thread")]
-#[ignore = "runs the real Claude Code CLI"]
-async fn e2e_cancel_kills_the_agent_and_its_commands() {
-    let e = env("cancel").await;
+async fn cancel_kills_the_agent_and_its_commands(agent: &str) {
+    let e = env("cancel", agent).await;
     let marker = format!("wz-e2e-{}", std::process::id());
     let id = e
         .start(&format!(
             "Run this exact shell command in the foreground and wait for it to finish: \
-             python3 -c \"import time; time.sleep(120)\" # {marker}"
+             python3 -c \"import time; time.sleep(120)  # {marker}\""
         ))
         .await;
-    e.wait_until(id, "the shell command", |_, events| {
-        events
-            .iter()
-            .any(|ev| matches!(&ev.data, EventData::ToolUse { summary, .. } if summary.contains(&marker)))
-    })
-    .await;
-    tokio::time::sleep(Duration::from_secs(3)).await;
-    assert!(processes_with(&marker) > 0, "the command should be running");
+    // Wait for the process itself: OpenCode only reports a tool call once it has finished.
+    e.wait_until(id, "the shell command to run", |_, _| processes_with(&marker) > 0).await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
 
     let t = e.agents.cancel(id).await.unwrap();
     assert_eq!(t.status, TicketStatus::Planning);
     tokio::time::sleep(Duration::from_secs(1)).await;
     assert_eq!(processes_with(&marker), 0, "no process of the cancelled run may survive");
 }
+
+/// One ignored test per scenario and agent, e.g. `agent::e2e::opencode::question_and_reply`.
+macro_rules! per_agent {
+    ($($scenario:ident),*) => {
+        mod claude {
+            $(
+                #[tokio::test(flavor = "multi_thread")]
+                #[ignore = "runs the real Claude Code CLI"]
+                async fn $scenario() { super::$scenario("claude").await }
+            )*
+        }
+        mod opencode {
+            $(
+                #[tokio::test(flavor = "multi_thread")]
+                #[ignore = "runs the real OpenCode CLI"]
+                async fn $scenario() { super::$scenario("opencode").await }
+            )*
+        }
+    };
+}
+
+per_agent!(simple_task_finishes, question_and_reply, cancel_kills_the_agent_and_its_commands);
 
 /// Live processes whose command line contains `marker` (Linux).
 fn processes_with(marker: &str) -> usize {
@@ -159,10 +184,11 @@ fn processes_with(marker: &str) -> usize {
 }
 
 #[tokio::test]
-#[ignore = "needs the real Claude Code CLI"]
-async fn e2e_check_reports_the_version() {
-    let version = super::claude::check(None).await.unwrap();
-    println!("  {version}");
-    assert!(version.contains("Claude Code"));
-    assert!(super::claude::check(Some(Path::new("/no/such/claude"))).await.is_err());
+#[ignore = "needs the real agent CLIs"]
+async fn check_reports_the_versions() {
+    for agent in ["claude", "opencode"] {
+        let version = super::check(agent, None).await.unwrap();
+        println!("  {version}");
+        assert!(super::check(agent, Some(Path::new("/no/such/agent"))).await.is_err());
+    }
 }

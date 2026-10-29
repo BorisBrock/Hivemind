@@ -61,7 +61,9 @@ class AppState {
     palette: "vivid",
     agent: "claude",
     claudePath: "",
-    model: "",
+    opencodePath: "",
+    claudeModel: "",
+    opencodeModel: "",
   });
   usage = $state<Usage | null>(null);
   settingsOpen = $state(false);
