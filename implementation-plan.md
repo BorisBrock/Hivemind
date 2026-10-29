@@ -65,7 +65,8 @@ Planning ──user──▶ Ready ──scheduler──▶ InProgress ──age
 
 **Exit criterion:** a headless Rust test program that runs a ticket from start to finish on Linux and Windows, including one `ask_user` round trip and a cancel.
 
-### Phase 1 – Skeleton
+### Phase 1 – Skeleton ✅
+*Done. Rust is pinned to 1.99.1 (`rust-toolchain.toml`) because specta needs ≥ 1.93. `@tauri-apps/api` is pinned to 2.11 to match the newest 2.x `tauri` crate.*
 - Tauri 2 + Svelte + Tailwind scaffold, lint/format, CI (build and test on Linux and Windows).
 - SQLite schema + migrations, Rust repository layer, typed IPC commands (generate TS types with `specta`/`tauri-specta`).
 - Theme system (CSS variables, light/dark + 2–3 themes), app layout: sidebar, board, status bar.

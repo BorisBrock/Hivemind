@@ -1,0 +1,112 @@
+@import "tailwindcss";
+
+/*
+ * Themes and palettes are plain CSS variables, switched with
+ * <html data-theme="…" data-palette="…">. Tailwind utilities map onto them
+ * (bg-surface, text-muted, border-line, …), so components never hard-code colours.
+ */
+
+@theme inline {
+  --color-bg: var(--wz-bg);
+  --color-surface: var(--wz-surface);
+  --color-raised: var(--wz-raised);
+  --color-line: var(--wz-line);
+  --color-fg: var(--wz-fg);
+  --color-muted: var(--wz-muted);
+  --color-accent: var(--wz-accent);
+  --color-danger: var(--wz-danger);
+  --font-sans: "Inter", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "Cascadia Code", ui-monospace, monospace;
+}
+
+/* ---- themes -------------------------------------------------------------- */
+
+:root,
+[data-theme="midnight"] {
+  color-scheme: dark;
+  --wz-bg: #0e1116;
+  --wz-surface: #161a21;
+  --wz-raised: #1e232c;
+  --wz-line: #2a303b;
+  --wz-fg: #e6e9ef;
+  --wz-muted: #8b93a3;
+  --wz-accent: #7c9cff;
+  --wz-danger: #ff6b6b;
+}
+
+[data-theme="daylight"] {
+  color-scheme: light;
+  --wz-bg: #f4f5f7;
+  --wz-surface: #ffffff;
+  --wz-raised: #f9fafb;
+  --wz-line: #e2e5ea;
+  --wz-fg: #1b1f27;
+  --wz-muted: #687083;
+  --wz-accent: #3b5bdb;
+  --wz-danger: #d63939;
+}
+
+[data-theme="nord"] {
+  color-scheme: dark;
+  --wz-bg: #2e3440;
+  --wz-surface: #3b4252;
+  --wz-raised: #434c5e;
+  --wz-line: #4c566a;
+  --wz-fg: #eceff4;
+  --wz-muted: #a3acbf;
+  --wz-accent: #88c0d0;
+  --wz-danger: #bf616a;
+}
+
+/* ---- project colour palettes (10 slots, see PALETTE_SIZE) ----------------- */
+
+:root,
+[data-palette="vivid"] {
+  --p-0: #4f8cff;
+  --p-1: #f26d6d;
+  --p-2: #3ecf8e;
+  --p-3: #f5a524;
+  --p-4: #a77bf3;
+  --p-5: #2ec4d6;
+  --p-6: #ef6fb4;
+  --p-7: #9ccc3d;
+  --p-8: #ff8a4c;
+  --p-9: #8f9bb3;
+}
+
+[data-palette="pastel"] {
+  --p-0: #9db8f5;
+  --p-1: #f2a7a7;
+  --p-2: #9fdcbf;
+  --p-3: #f5cf8e;
+  --p-4: #c9b3f2;
+  --p-5: #99dbe3;
+  --p-6: #f2b3d6;
+  --p-7: #c7e19a;
+  --p-8: #f7bc98;
+  --p-9: #bcc3d1;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: var(--wz-bg);
+  color: var(--wz-fg);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--wz-line);
+  border-radius: 5px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
