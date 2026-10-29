@@ -6,7 +6,8 @@ import {
   type NewTicket,
   type Project,
   type ProjectPatch,
-  type Settings,
+  type Settings_Serialize as Settings,
+  type Usage,
   type TicketPatch,
   type TicketStatus,
 } from "./bindings";
@@ -55,7 +56,15 @@ export type TicketDialogState = { mode: "create"; projectId?: number } | { mode:
 class AppState {
   projects = $state<Project[]>([]);
   tickets = $state<Ticket[]>([]);
-  settings = $state<Settings>({ theme: "midnight", palette: "vivid", agent: "claude" });
+  settings = $state<Settings>({
+    theme: "midnight",
+    palette: "vivid",
+    agent: "claude",
+    claudePath: "",
+    model: "",
+  });
+  usage = $state<Usage | null>(null);
+  settingsOpen = $state(false);
   error = $state<string | null>(null);
 
   projectDialog = $state<ProjectDialogState | null>(null);
@@ -87,10 +96,11 @@ class AppState {
       await this.run(() => this.listen());
     }
     await this.run(async () => {
-      [this.settings, this.projects, this.tickets] = await Promise.all([
+      [this.settings, this.projects, this.tickets, this.usage] = await Promise.all([
         commands.getSettings(),
         commands.listProjects(),
         commands.listTickets(),
+        commands.getUsage(),
       ]);
       applyAppearance(this.settings.theme, this.settings.palette);
     });
@@ -115,6 +125,7 @@ class AppState {
       const list = this.transcripts[payload.ticketId];
       if (list && !list.some((e) => e.id === payload.id)) list.push(payload);
     });
+    await events.usageChanged.listen(({ payload }) => (this.usage = payload));
   }
 
   // ---- projects -------------------------------------------------------------

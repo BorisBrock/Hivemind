@@ -87,7 +87,8 @@ Planning ──user──▶ Ready ──scheduler──▶ InProgress ──age
 - Close = delete ticket + transcript (with confirmation).
 - **Crash recovery:** on start-up, tickets left In Progress become "Interrupted" (shown in Needs Input) with a Resume button.
 
-### Phase 4 – Settings & status bar
+### Phase 4 – Settings & status bar ✅
+*Done. "Session"/"Week" in the status bar are Claude's 5-hour and 7-day limit windows from the undocumented `rate_limit_event` (utilization read as a fraction 0–1). Weekly tokens/cost come from an `agent_turns` log that survives ticket deletion. Settings also hold the `claude` path and an optional model.*
 - Settings dialog: theme, palette, default agent, binary paths (with a notice that agents run fully autonomous).
 - Status bar: running sessions, tokens/cost per session and per week (from `result` messages).
 

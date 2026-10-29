@@ -146,15 +146,69 @@ pub struct TicketPatch {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", default)]
 pub struct Settings {
     pub theme: String,
     pub palette: String,
     pub agent: String,
+    /// Path of the `claude` executable; empty means "find it on PATH".
+    pub claude_path: String,
+    /// Model passed to the agent (e.g. `sonnet`); empty means the agent's own default.
+    pub model: String,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { theme: "midnight".into(), palette: "vivid".into(), agent: "claude".into() }
+        Self {
+            theme: "midnight".into(),
+            palette: "vivid".into(),
+            agent: "claude".into(),
+            claude_path: String::new(),
+            model: String::new(),
+        }
+    }
+}
+
+/// Plan usage window reported by Claude Code (`rate_limit_event`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageWindow {
+    /// Share of the window's limit used, 0.0–1.0.
+    pub utilization: f64,
+    pub resets_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageLimits {
+    /// Claude's 5-hour session window.
+    pub five_hour: Option<UsageWindow>,
+    pub seven_day: Option<UsageWindow>,
+    /// When Claude last reported these numbers.
+    pub reported_at: Option<DateTime<Utc>>,
+}
+
+/// What the status bar shows.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct Usage {
+    pub limits: UsageLimits,
+    /// Totals of the last 7 days, summed from finished agent turns.
+    pub week_input_tokens: i64,
+    pub week_output_tokens: i64,
+    pub week_cost_usd: f64,
+}
+
+/// How to run the agent, taken from the settings at the start of each run.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct AgentOptions {
+    pub binary: Option<std::path::PathBuf>,
+    pub model: Option<String>,
+}
+
+impl From<&Settings> for AgentOptions {
+    fn from(s: &Settings) -> Self {
+        let set = |v: &str| Some(v.trim()).filter(|v| !v.is_empty()).map(String::from);
+        Self { binary: set(&s.claude_path).map(Into::into), model: set(&s.model) }
     }
 }

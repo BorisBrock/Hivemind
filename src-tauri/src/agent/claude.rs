@@ -13,7 +13,7 @@ use tokio::sync::{mpsc, oneshot};
 
 use super::{AgentBackend, AgentEvent, Run, RunRequest, mcp, process};
 use crate::error::{AppError, AppResult};
-use crate::models::EventData;
+use crate::models::{EventData, UsageLimits, UsageWindow};
 
 const SYSTEM_PROMPT: &str = "You are running unattended inside Workzone, a task board. Nobody watches \
 your output live. When you need a decision or information from the user, call the `ask_user` tool \
@@ -43,24 +43,15 @@ impl ClaudeBackend {
     }
 
     fn command(&self, request: &RunRequest) -> AppResult<tokio::process::Command> {
-        let binary = find_claude()?;
-        // npm installs a `claude.cmd` shim on Windows, which can only run through cmd.exe.
-        let is_script = binary
-            .extension()
-            .is_some_and(|e| e.eq_ignore_ascii_case("cmd") || e.eq_ignore_ascii_case("bat"));
-        let mut cmd = if is_script {
-            let mut c = tokio::process::Command::new("cmd");
-            c.arg("/C").arg(&binary);
-            c
-        } else {
-            tokio::process::Command::new(&binary)
-        };
+        let mut cmd = base_command(&find_claude(request.options.binary.as_deref())?);
         cmd.current_dir(&request.cwd)
             .args(["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose"])
             .args(["--permission-mode", "bypassPermissions", "--strict-mcp-config", "--mcp-config"])
             .arg(&self.mcp_config)
             .args(["--append-system-prompt", SYSTEM_PROMPT]);
-        if let Ok(model) = std::env::var("WORKZONE_CLAUDE_MODEL") {
+        if let Some(model) =
+            request.options.model.clone().or_else(|| std::env::var("WORKZONE_CLAUDE_MODEL").ok())
+        {
             cmd.args(["--model", &model]);
         }
         if let Some(session) = &request.resume {
@@ -71,16 +62,56 @@ impl ClaudeBackend {
     }
 }
 
-/// `WORKZONE_CLAUDE_BIN` if set, otherwise `claude` from PATH.
-fn find_claude() -> AppResult<PathBuf> {
+fn base_command(binary: &Path) -> tokio::process::Command {
+    // npm installs a `claude.cmd` shim on Windows, which can only run through cmd.exe.
+    let is_script =
+        binary.extension().is_some_and(|e| e.eq_ignore_ascii_case("cmd") || e.eq_ignore_ascii_case("bat"));
+    if is_script {
+        let mut c = tokio::process::Command::new("cmd");
+        c.arg("/C").arg(binary);
+        c
+    } else {
+        tokio::process::Command::new(binary)
+    }
+}
+
+/// The configured path, else `WORKZONE_CLAUDE_BIN`, else `claude` from PATH.
+fn find_claude(configured: Option<&Path>) -> AppResult<PathBuf> {
+    if let Some(path) = configured {
+        return if path.is_file() {
+            Ok(path.into())
+        } else {
+            Err(AppError::Invalid { message: format!("Claude Code not found at {}", path.display()) })
+        };
+    }
     if let Some(bin) = std::env::var_os("WORKZONE_CLAUDE_BIN") {
         return Ok(bin.into());
     }
     which::which("claude").map_err(|_| AppError::Invalid {
         message: "Claude Code was not found on PATH. Install it (https://claude.com/claude-code) \
-                  or set WORKZONE_CLAUDE_BIN."
+                  or set its path in Settings."
             .into(),
     })
+}
+
+/// Runs `claude --version` to check the setup; returns the version line.
+pub async fn check(configured: Option<&Path>) -> AppResult<String> {
+    let binary = find_claude(configured)?;
+    let mut cmd = base_command(&binary);
+    cmd.arg("--version");
+    #[cfg(windows)]
+    cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    let out = tokio::time::timeout(std::time::Duration::from_secs(15), cmd.output())
+        .await
+        .map_err(|_| AppError::Invalid { message: "`claude --version` did not answer".into() })?
+        .map_err(|e| AppError::Invalid { message: format!("could not run {}: {e}", binary.display()) })?;
+    let text = String::from_utf8_lossy(if out.status.success() { &out.stdout } else { &out.stderr });
+    let line = text.lines().next().unwrap_or_default().trim().to_string();
+    if out.status.success() {
+        Ok(format!("{line} ({})", binary.display()))
+    } else {
+        Err(AppError::Invalid { message: format!("{} failed: {line}", binary.display()) })
+    }
 }
 
 impl AgentBackend for ClaudeBackend {
@@ -238,6 +269,22 @@ impl StreamParser {
                     }));
                 }
             }
+            ("rate_limit_event", _) => {
+                let windows = &v["rate_limit_info"]["unifiedWindows"];
+                let window = |w: &Value| {
+                    Some(UsageWindow {
+                        utilization: w["utilization"].as_f64()?,
+                        resets_at: w["resetsAt"]
+                            .as_i64()
+                            .and_then(|t| chrono::DateTime::from_timestamp(t, 0)),
+                    })
+                };
+                out.push(AgentEvent::Limits(UsageLimits {
+                    five_hour: window(&windows["five_hour"]),
+                    seven_day: window(&windows["seven_day"]),
+                    reported_at: Some(chrono::Utc::now()),
+                }));
+            }
             ("result", _) => {
                 let usage = &v["usage"];
                 let tokens = |k: &str| usage[k].as_i64().unwrap_or(0);
@@ -328,7 +375,14 @@ mod tests {
 
     fn parse_all(lines: &[&str]) -> Vec<AgentEvent> {
         let mut p = StreamParser::default();
-        lines.iter().flat_map(|l| p.parse(&serde_json::from_str(l).unwrap())).collect()
+        let mut events: Vec<_> =
+            lines.iter().flat_map(|l| p.parse(&serde_json::from_str(l).unwrap())).collect();
+        for e in &mut events {
+            if let AgentEvent::Limits(l) = e {
+                l.reported_at = None;
+            }
+        }
+        events
     }
 
     #[test]
@@ -339,7 +393,7 @@ mod tests {
             r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":[{"type":"text","text":"a.txt"}],"is_error":false}]}}"#,
             r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t2","name":"mcp__workzone__ask_user","input":{"question":"A or B?","options":["A","B"]}}]}}"#,
             r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t2","content":"Question delivered"}]}}"#,
-            r#"{"type":"rate_limit_event","rate_limit_info":{}}"#,
+            r#"{"type":"rate_limit_event","rate_limit_info":{"unifiedWindows":{"five_hour":{"utilization":0.25,"resetsAt":1793307000}}}}"#,
             r#"{"type":"system","subtype":"post_turn_summary","status_category":"blocked","needs_action":"choose A or B"}"#,
             r#"{"type":"result","subtype":"success","is_error":false,"result":"Asked.","total_cost_usd":0.01,"duration_ms":1500,"usage":{"input_tokens":2,"cache_creation_input_tokens":100,"cache_read_input_tokens":50,"output_tokens":7}}"#,
         ]);
@@ -363,6 +417,14 @@ mod tests {
                 AgentEvent::Transcript(EventData::Question {
                     question: "A or B?".into(),
                     options: vec!["A".into(), "B".into()]
+                }),
+                AgentEvent::Limits(UsageLimits {
+                    five_hour: Some(UsageWindow {
+                        utilization: 0.25,
+                        resets_at: chrono::DateTime::from_timestamp(1793307000, 0)
+                    }),
+                    seven_day: None,
+                    reported_at: None, // compared without the timestamp below
                 }),
                 AgentEvent::Blocked { needs_action: Some("choose A or B".into()) },
                 AgentEvent::Transcript(EventData::TurnResult {

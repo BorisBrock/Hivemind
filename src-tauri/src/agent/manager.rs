@@ -13,13 +13,14 @@ use tokio::sync::{mpsc, oneshot};
 
 use super::{AgentBackend, AgentEvent, RunRequest};
 use crate::error::{AppError, AppResult, invalid};
-use crate::models::{EventData, Ticket, TicketEvent, TicketStatus};
+use crate::models::{EventData, Ticket, TicketEvent, TicketStatus, Usage};
 use crate::repo;
 
 /// Tells the UI about changes the agent manager makes.
 pub trait Notifier: Send + Sync {
     fn ticket_changed(&self, ticket: &Ticket);
     fn event_added(&self, event: &TicketEvent);
+    fn usage_changed(&self, usage: &Usage);
 }
 
 pub struct AgentManager {
@@ -154,7 +155,8 @@ impl AgentManager {
                 .await?;
         }
         self.record(ticket.id, EventData::UserPrompt { text: prompt.clone() }).await?;
-        match self.backend.start(RunRequest { cwd, prompt, resume }) {
+        let options = (&repo::get_settings(&self.db).await?).into();
+        match self.backend.start(RunRequest { cwd, prompt, resume, options }) {
             Ok(run) => {
                 self.runs.lock().unwrap().insert(ticket.id, run.cancel);
                 tokio::spawn(self.clone().follow(ticket.id, run.events));
@@ -193,7 +195,15 @@ impl AgentManager {
                 AgentEvent::Transcript(data) => {
                     asked |= matches!(data, EventData::Question { .. });
                     failed |= matches!(data, EventData::TurnResult { is_error: true, .. });
+                    if let EventData::TurnResult { input_tokens, output_tokens, cost_usd, .. } = data {
+                        repo::log_turn(&self.db, ticket_id, input_tokens, output_tokens, cost_usd).await?;
+                        self.notifier.usage_changed(&repo::get_usage(&self.db).await?);
+                    }
                     self.record(ticket_id, data).await?;
+                }
+                AgentEvent::Limits(limits) => {
+                    repo::save_limits(&self.db, &limits).await?;
+                    self.notifier.usage_changed(&repo::get_usage(&self.db).await?);
                 }
                 AgentEvent::Blocked { needs_action } => blocked = Some(needs_action),
                 AgentEvent::Exited { error } => exit_error = error,
@@ -295,6 +305,7 @@ mod tests {
     impl Notifier for NoNotifier {
         fn ticket_changed(&self, _: &Ticket) {}
         fn event_added(&self, _: &TicketEvent) {}
+        fn usage_changed(&self, _: &Usage) {}
     }
 
     struct Env {

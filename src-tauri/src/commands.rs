@@ -112,6 +112,20 @@ pub async fn delete_ticket(db: Db<'_>, id: i64) -> AppResult<()> {
 
 #[tauri::command]
 #[specta::specta]
+pub async fn get_usage(db: Db<'_>) -> AppResult<Usage> {
+    repo::get_usage(&db).await
+}
+
+/// Checks that the agent CLI can be found and runs; returns its version.
+#[tauri::command]
+#[specta::specta]
+pub async fn check_agent(claude_path: String) -> AppResult<String> {
+    let path = Some(claude_path.trim()).filter(|p| !p.is_empty()).map(std::path::Path::new);
+    crate::agent::claude::check(path).await
+}
+
+#[tauri::command]
+#[specta::specta]
 pub async fn get_settings(db: Db<'_>) -> AppResult<Settings> {
     repo::get_settings(&db).await
 }

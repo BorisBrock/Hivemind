@@ -22,6 +22,9 @@ impl Notifier for PrintNotifier {
         let line = format!("{:?}", e.data);
         println!("  [event] {}", &line[..line.len().min(160)]);
     }
+    fn usage_changed(&self, u: &Usage) {
+        println!("  [usage] {u:?}");
+    }
 }
 
 struct Env {
@@ -153,4 +156,13 @@ fn processes_with(marker: &str) -> usize {
             !zombie && String::from_utf8_lossy(&cmd).contains(marker)
         })
         .count()
+}
+
+#[tokio::test]
+#[ignore = "needs the real Claude Code CLI"]
+async fn e2e_check_reports_the_version() {
+    let version = super::claude::check(None).await.unwrap();
+    println!("  {version}");
+    assert!(version.contains("Claude Code"));
+    assert!(super::claude::check(Some(Path::new("/no/such/claude"))).await.is_err());
 }

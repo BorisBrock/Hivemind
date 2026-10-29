@@ -33,10 +33,12 @@ fn specta_builder() -> Builder<tauri::Wry> {
             commands::reply_to_ticket,
             commands::send_back_to_ready,
             commands::cancel_ticket,
+            commands::get_usage,
+            commands::check_agent,
             commands::get_settings,
             commands::save_settings,
         ])
-        .events(collect_events![events::TicketChanged, events::TicketEventAdded])
+        .events(collect_events![events::TicketChanged, events::TicketEventAdded, events::UsageChanged])
         .constant("PALETTE_SIZE", repo::PALETTE_SIZE)
         .error_handling(ErrorHandlingMode::Throw)
         // IDs are SQLite rowids, far below 2^53.

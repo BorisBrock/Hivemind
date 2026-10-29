@@ -405,6 +405,56 @@ fn payload_kind(payload: &str) -> String {
         .unwrap_or_default()
 }
 
+// ---- usage ------------------------------------------------------------------
+
+const LIMITS_KEY: &str = "usage_limits";
+
+pub async fn log_turn(
+    db: &SqlitePool,
+    ticket_id: i64,
+    input_tokens: i64,
+    output_tokens: i64,
+    cost_usd: f64,
+) -> AppResult<()> {
+    sqlx::query(
+        "INSERT INTO agent_turns (ticket_id, created_at, input_tokens, output_tokens, cost_usd) VALUES (?, ?, ?, ?, ?)",
+    )
+    .bind(ticket_id)
+    .bind(Utc::now())
+    .bind(input_tokens)
+    .bind(output_tokens)
+    .bind(cost_usd)
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+pub async fn save_limits(db: &SqlitePool, limits: &UsageLimits) -> AppResult<()> {
+    sqlx::query("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value")
+        .bind(LIMITS_KEY)
+        .bind(serde_json::to_string(limits)?)
+        .execute(db)
+        .await?;
+    Ok(())
+}
+
+pub async fn get_usage(db: &SqlitePool) -> AppResult<Usage> {
+    let raw: Option<String> = sqlx::query_scalar("SELECT value FROM settings WHERE key = ?")
+        .bind(LIMITS_KEY)
+        .fetch_optional(db)
+        .await?;
+    let limits = raw.and_then(|r| serde_json::from_str(&r).ok()).unwrap_or_default();
+    let since = Utc::now() - chrono::Duration::days(7);
+    let (week_input_tokens, week_output_tokens, week_cost_usd): (i64, i64, f64) = sqlx::query_as(
+        "SELECT COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0), COALESCE(SUM(cost_usd), 0.0)
+         FROM agent_turns WHERE created_at >= ?",
+    )
+    .bind(since)
+    .fetch_one(db)
+    .await?;
+    Ok(Usage { limits, week_input_tokens, week_output_tokens, week_cost_usd })
+}
+
 // ---- settings ---------------------------------------------------------------
 
 const SETTINGS_KEY: &str = "app";
@@ -588,6 +638,28 @@ mod tests {
         claim_next_ready(&db, p.id).await.unwrap().unwrap();
         assert_eq!(mark_interrupted(&db).await.unwrap(), [t.id]);
         assert_eq!(get_ticket(&db, t.id).await.unwrap().status, TicketStatus::NeedsInput);
+    }
+
+    #[tokio::test]
+    async fn usage_survives_ticket_deletion() {
+        let db = db::open_in_memory().await.unwrap();
+        let p = project(&db, "p").await;
+        let t = ticket(&db, p.id, "t").await;
+        log_turn(&db, t.id, 1000, 50, 0.25).await.unwrap();
+        log_turn(&db, t.id, 500, 25, 0.5).await.unwrap();
+        delete_ticket(&db, t.id).await.unwrap();
+        let limits = UsageLimits {
+            five_hour: Some(UsageWindow { utilization: 0.4, resets_at: None }),
+            ..Default::default()
+        };
+        save_limits(&db, &limits).await.unwrap();
+
+        let usage = get_usage(&db).await.unwrap();
+        assert_eq!(
+            (usage.week_input_tokens, usage.week_output_tokens, usage.week_cost_usd),
+            (1500, 75, 0.75)
+        );
+        assert_eq!(usage.limits, limits);
     }
 
     #[tokio::test]

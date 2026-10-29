@@ -23,14 +23,18 @@ export const commands = {
 	/**  Done → Ready; `comment` becomes the next prompt of the same agent session. */
 	sendBackToReady: (id: number, comment: string) => __TAURI_INVOKE<Ticket_Serialize>("send_back_to_ready", { id, comment }),
 	cancelTicket: (id: number) => __TAURI_INVOKE<Ticket_Serialize>("cancel_ticket", { id }),
-	getSettings: () => __TAURI_INVOKE<Settings>("get_settings"),
-	saveSettings: (settings: Settings) => __TAURI_INVOKE<null>("save_settings", { settings }),
+	getUsage: () => __TAURI_INVOKE<Usage_Serialize>("get_usage"),
+	/**  Checks that the agent CLI can be found and runs; returns its version. */
+	checkAgent: (claudePath: string) => __TAURI_INVOKE<string>("check_agent", { claudePath }),
+	getSettings: () => __TAURI_INVOKE<Settings_Serialize>("get_settings"),
+	saveSettings: (settings: Settings_Deserialize) => __TAURI_INVOKE<null>("save_settings", { settings }),
 };
 
 /** Events */
 export const events = {
 	ticketChanged: makeEvent<TicketChanged_Serialize, TicketChanged_Deserialize>("ticket-changed"),
 	ticketEventAdded: makeEvent<TicketEventAdded_Serialize, TicketEventAdded_Deserialize>("ticket-event-added"),
+	usageChanged: makeEvent<UsageChanged_Serialize, UsageChanged_Deserialize>("usage-changed"),
 };
 
 /* Constants */
@@ -114,10 +118,26 @@ export type ProjectPatch_Serialize = {
 	hidden: boolean | null,
 };
 
-export type Settings = {
+export type Settings = Settings_Serialize | Settings_Deserialize;
+
+export type Settings_Deserialize = {
+	theme?: string,
+	palette?: string,
+	agent?: string,
+	/**  Path of the `claude` executable; empty means "find it on PATH". */
+	claudePath?: string,
+	/**  Model passed to the agent (e.g. `sonnet`); empty means the agent's own default. */
+	model?: string,
+};
+
+export type Settings_Serialize = {
 	theme: string,
 	palette: string,
 	agent: string,
+	/**  Path of the `claude` executable; empty means "find it on PATH". */
+	claudePath: string,
+	/**  Model passed to the agent (e.g. `sonnet`); empty means the agent's own default. */
+	model: string,
 };
 
 export type Ticket = Ticket_Serialize | Ticket_Deserialize;
@@ -193,6 +213,68 @@ export type Ticket_Serialize = {
 	pendingPrompt: string | null,
 	createdAt: string,
 	updatedAt: string,
+};
+
+/**  What the status bar shows. */
+export type Usage = Usage_Serialize | Usage_Deserialize;
+
+export type UsageChanged = UsageChanged_Serialize | UsageChanged_Deserialize;
+
+export type UsageChanged_Deserialize = Usage_Deserialize;
+
+export type UsageChanged_Serialize = Usage_Serialize;
+
+export type UsageLimits = UsageLimits_Serialize | UsageLimits_Deserialize;
+
+export type UsageLimits_Deserialize = {
+	/**  Claude's 5-hour session window. */
+	fiveHour?: UsageWindow_Deserialize | null,
+	sevenDay?: UsageWindow_Deserialize | null,
+	/**  When Claude last reported these numbers. */
+	reportedAt?: string | null,
+};
+
+export type UsageLimits_Serialize = {
+	/**  Claude's 5-hour session window. */
+	fiveHour: UsageWindow_Serialize | null,
+	sevenDay: UsageWindow_Serialize | null,
+	/**  When Claude last reported these numbers. */
+	reportedAt: string | null,
+};
+
+/**  Plan usage window reported by Claude Code (`rate_limit_event`). */
+export type UsageWindow = UsageWindow_Serialize | UsageWindow_Deserialize;
+
+/**  Plan usage window reported by Claude Code (`rate_limit_event`). */
+export type UsageWindow_Deserialize = {
+	/**  Share of the window's limit used, 0.0–1.0. */
+	utilization: number | null,
+	resetsAt?: string | null,
+};
+
+/**  Plan usage window reported by Claude Code (`rate_limit_event`). */
+export type UsageWindow_Serialize = {
+	/**  Share of the window's limit used, 0.0–1.0. */
+	utilization: number | null,
+	resetsAt: string | null,
+};
+
+/**  What the status bar shows. */
+export type Usage_Deserialize = {
+	limits: UsageLimits_Deserialize,
+	/**  Totals of the last 7 days, summed from finished agent turns. */
+	weekInputTokens: number,
+	weekOutputTokens: number,
+	weekCostUsd: number | null,
+};
+
+/**  What the status bar shows. */
+export type Usage_Serialize = {
+	limits: UsageLimits_Serialize,
+	/**  Totals of the last 7 days, summed from finished agent turns. */
+	weekInputTokens: number,
+	weekOutputTokens: number,
+	weekCostUsd: number | null,
 };
 
 /* Tauri Specta runtime */
