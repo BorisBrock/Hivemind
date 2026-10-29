@@ -16,7 +16,16 @@
   },
   "license": "MIT",
   "dependencies": {
-    "@tauri-apps/api": "~2.11.1"
+    "@codemirror/commands": "^6.11.1",
+    "@codemirror/lang-markdown": "^6.5.2",
+    "@codemirror/language": "^6.13.1",
+    "@codemirror/view": "^6.43.15",
+    "@lezer/highlight": "^1.2.5",
+    "@tauri-apps/api": "~2.11.1",
+    "@tauri-apps/plugin-dialog": "~2.8.4",
+    "codemirror": "^6.0.2",
+    "markdown-it": "^15.0.3",
+    "svelte-dnd-action": "^0.9.80"
   },
   "devDependencies": {
     "@sveltejs/adapter-static": "^3.0.10",
@@ -24,6 +33,7 @@
     "@sveltejs/vite-plugin-svelte": "^7.1.2",
     "@tailwindcss/vite": "^4.3.3",
     "@tauri-apps/cli": "^2",
+    "@types/markdown-it": "^14.2.0",
     "prettier": "^3.9.10",
     "prettier-plugin-svelte": "^4.1.1",
     "svelte": "^5.56.3",

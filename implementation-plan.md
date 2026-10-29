@@ -71,7 +71,8 @@ Planning ──user──▶ Ready ──scheduler──▶ InProgress ──age
 - SQLite schema + migrations, Rust repository layer, typed IPC commands (generate TS types with `specta`/`tauri-specta`).
 - Theme system (CSS variables, light/dark + 2–3 themes), app layout: sidebar, board, status bar.
 
-### Phase 2 – Projects & tickets (no AI yet)
+### Phase 2 – Projects & tickets (no AI yet) ✅
+*Done. Moves are stored relative to the neighbour ticket (`before_id`), so ordering stays correct when hidden projects share a column. Project folders must exist.*
 - Project CRUD (folder picker, colour picker from the palette), hide/show toggle, reordering.
 - Kanban board with five columns, drag & drop limited to the transitions the user is allowed to make, tickets in project colours.
 - Ticket view: CodeMirror markdown editor in Planning, read-only transcript afterwards.

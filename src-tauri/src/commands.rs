@@ -29,6 +29,12 @@ pub async fn update_project(db: Db<'_>, id: i64, patch: ProjectPatch) -> AppResu
 
 #[tauri::command]
 #[specta::specta]
+pub async fn reorder_projects(db: Db<'_>, ids: Vec<i64>) -> AppResult<()> {
+    repo::reorder_projects(&db, &ids).await
+}
+
+#[tauri::command]
+#[specta::specta]
 pub async fn delete_project(db: Db<'_>, id: i64) -> AppResult<()> {
     repo::delete_project(&db, id).await
 }
@@ -53,8 +59,8 @@ pub async fn update_ticket(db: Db<'_>, id: i64, patch: TicketPatch) -> AppResult
 
 #[tauri::command]
 #[specta::specta]
-pub async fn move_ticket(db: Db<'_>, id: i64, to: TicketStatus, index: u32) -> AppResult<Ticket> {
-    repo::move_ticket(&db, id, to, index as usize).await
+pub async fn move_ticket(db: Db<'_>, id: i64, to: TicketStatus, before_id: Option<i64>) -> AppResult<Ticket> {
+    repo::move_ticket(&db, id, to, before_id).await
 }
 
 #[tauri::command]

@@ -15,6 +15,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
             commands::list_projects,
             commands::create_project,
             commands::update_project,
+            commands::reorder_projects,
             commands::delete_project,
             commands::list_tickets,
             commands::create_ticket,
@@ -43,6 +44,7 @@ pub fn run() {
     export_bindings(&builder);
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(builder.invoke_handler())
         .setup(move |app| {
             builder.mount_events(app);

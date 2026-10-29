@@ -21,7 +21,7 @@ pub async fn get_project(db: &SqlitePool, id: i64) -> AppResult<Project> {
 
 pub async fn create_project(db: &SqlitePool, new: NewProject) -> AppResult<Project> {
     let name = non_empty(&new.name, "name")?;
-    let path = non_empty(&new.path, "path")?;
+    let path = existing_dir(&new.path)?;
     let color_index = match new.color_index {
         Some(c) => check_color(c)?,
         None => next_free_color(db).await?,
@@ -46,7 +46,7 @@ pub async fn update_project(db: &SqlitePool, id: i64, patch: ProjectPatch) -> Ap
         p.name = non_empty(&name, "name")?.into();
     }
     if let Some(path) = patch.path {
-        p.path = non_empty(&path, "path")?.into();
+        p.path = existing_dir(&path)?.into();
     }
     if let Some(c) = patch.color_index {
         p.color_index = check_color(c)?;
@@ -65,8 +65,31 @@ pub async fn update_project(db: &SqlitePool, id: i64, patch: ProjectPatch) -> Ap
     Ok(p)
 }
 
+/// Sets the sidebar order to the order of `ids`.
+pub async fn reorder_projects(db: &SqlitePool, ids: &[i64]) -> AppResult<()> {
+    let mut tx = db.begin().await?;
+    for (order, id) in ids.iter().enumerate() {
+        sqlx::query("UPDATE projects SET sort_order = ? WHERE id = ?")
+            .bind(order as i64)
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+    }
+    tx.commit().await?;
+    Ok(())
+}
+
 /// Deletes the project and, via cascade, all its tickets and transcripts.
 pub async fn delete_project(db: &SqlitePool, id: i64) -> AppResult<()> {
+    let running: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM tickets WHERE project_id = ? AND status IN ('in_progress', 'needs_input')",
+    )
+    .bind(id)
+    .fetch_one(db)
+    .await?;
+    if running > 0 {
+        return Err(invalid("cancel the running agent before deleting this project"));
+    }
     let n = sqlx::query("DELETE FROM projects WHERE id = ?").bind(id).execute(db).await?;
     if n.rows_affected() == 0 {
         return Err(AppError::NotFound);
@@ -142,24 +165,34 @@ pub async fn update_ticket(db: &SqlitePool, id: i64, patch: TicketPatch) -> AppR
     Ok(t)
 }
 
-/// User-initiated move to `index` within the `to` column.
-pub async fn move_ticket(db: &SqlitePool, id: i64, to: TicketStatus, index: usize) -> AppResult<Ticket> {
+/// User-initiated move into the `to` column, directly above `before_id` (or to the bottom).
+/// Placing relative to a neighbour keeps the order right when hidden projects share the column.
+pub async fn move_ticket(
+    db: &SqlitePool,
+    id: i64,
+    to: TicketStatus,
+    before_id: Option<i64>,
+) -> AppResult<Ticket> {
     let mut t = get_ticket(db, id).await?;
     if !t.status.user_can_move_to(to) {
         return Err(AppError::InvalidTransition { from: t.status, to });
     }
-    let column: Vec<f64> =
-        sqlx::query_scalar("SELECT position FROM tickets WHERE status = ? AND id != ? ORDER BY position")
+    let column: Vec<(i64, f64)> =
+        sqlx::query_as("SELECT id, position FROM tickets WHERE status = ? AND id != ? ORDER BY position")
             .bind(to)
             .bind(id)
             .fetch_all(db)
             .await?;
-    let index = index.min(column.len());
-    t.position = match (index.checked_sub(1).map(|i| column[i]), column.get(index)) {
+    let index = match before_id {
+        Some(b) => column.iter().position(|(cid, _)| *cid == b).ok_or(AppError::NotFound)?,
+        None => column.len(),
+    };
+    let position_at = |i: usize| column.get(i).map(|(_, p)| *p);
+    t.position = match (index.checked_sub(1).and_then(position_at), position_at(index)) {
         (None, None) => 0.0,
-        (None, Some(&next)) => next - 1.0,
+        (None, Some(next)) => next - 1.0,
         (Some(prev), None) => prev + 1.0,
-        (Some(prev), Some(&next)) => (prev + next) / 2.0,
+        (Some(prev), Some(next)) => (prev + next) / 2.0,
     };
     t.status = to;
     t.updated_at = Utc::now();
@@ -213,6 +246,15 @@ pub async fn save_settings(db: &SqlitePool, settings: &Settings) -> AppResult<()
     Ok(())
 }
 
+fn existing_dir(path: &str) -> AppResult<&str> {
+    let path = non_empty(path, "path")?;
+    if std::path::Path::new(path).is_dir() {
+        Ok(path)
+    } else {
+        Err(invalid(format!("folder does not exist: {path}")))
+    }
+}
+
 fn non_empty<'a>(value: &'a str, field: &str) -> AppResult<&'a str> {
     let v = value.trim();
     if v.is_empty() { Err(invalid(format!("{field} must not be empty"))) } else { Ok(v) }
@@ -224,9 +266,8 @@ mod tests {
     use crate::db;
 
     async fn project(db: &SqlitePool, name: &str) -> Project {
-        create_project(db, NewProject { name: name.into(), path: "/tmp".into(), color_index: None })
-            .await
-            .unwrap()
+        let path = std::env::temp_dir().to_string_lossy().into_owned();
+        create_project(db, NewProject { name: name.into(), path, color_index: None }).await.unwrap()
     }
 
     async fn ticket(db: &SqlitePool, project_id: i64, title: &str) -> Ticket {
@@ -247,6 +288,19 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn projects_need_an_existing_folder_and_can_be_reordered() {
+        let db = db::open_in_memory().await.unwrap();
+        let missing = NewProject { name: "x".into(), path: "/does/not/exist".into(), color_index: None };
+        assert!(matches!(create_project(&db, missing).await, Err(AppError::Invalid { .. })));
+
+        let a = project(&db, "a").await;
+        let b = project(&db, "b").await;
+        reorder_projects(&db, &[b.id, a.id]).await.unwrap();
+        let names: Vec<String> = list_projects(&db).await.unwrap().into_iter().map(|p| p.name).collect();
+        assert_eq!(names, ["b", "a"]);
+    }
+
+    #[tokio::test]
     async fn deleting_project_cascades_to_tickets() {
         let db = db::open_in_memory().await.unwrap();
         let p = project(&db, "p").await;
@@ -263,9 +317,9 @@ mod tests {
         let t2 = ticket(&db, p.id, "2").await;
         let t3 = ticket(&db, p.id, "3").await;
 
-        move_ticket(&db, t1.id, TicketStatus::Ready, 0).await.unwrap();
-        move_ticket(&db, t2.id, TicketStatus::Ready, 0).await.unwrap();
-        move_ticket(&db, t3.id, TicketStatus::Ready, 1).await.unwrap();
+        move_ticket(&db, t1.id, TicketStatus::Ready, None).await.unwrap();
+        move_ticket(&db, t2.id, TicketStatus::Ready, Some(t1.id)).await.unwrap();
+        move_ticket(&db, t3.id, TicketStatus::Ready, Some(t1.id)).await.unwrap();
         let ready: Vec<String> = list_tickets(&db)
             .await
             .unwrap()
@@ -275,7 +329,7 @@ mod tests {
             .collect();
         assert_eq!(ready, ["2", "3", "1"]);
 
-        let err = move_ticket(&db, t1.id, TicketStatus::Done, 0).await.unwrap_err();
+        let err = move_ticket(&db, t1.id, TicketStatus::Done, None).await.unwrap_err();
         assert!(matches!(err, AppError::InvalidTransition { .. }));
     }
 
@@ -287,7 +341,7 @@ mod tests {
         let body = TicketPatch { body: Some("new".into()), ..Default::default() };
 
         update_ticket(&db, t.id, body.clone()).await.unwrap();
-        move_ticket(&db, t.id, TicketStatus::Ready, 0).await.unwrap();
+        move_ticket(&db, t.id, TicketStatus::Ready, None).await.unwrap();
         assert!(matches!(update_ticket(&db, t.id, body).await, Err(AppError::NotEditable)));
         let title = TicketPatch { title: Some("renamed".into()), ..Default::default() };
         assert_eq!(update_ticket(&db, t.id, title).await.unwrap().title, "renamed");

@@ -4,16 +4,24 @@
 
   let { ticket }: { ticket: Ticket } = $props();
   const project = $derived(app.projectsById.get(ticket.projectId));
-  // First non-heading line of the prompt as a preview.
+  // First non-heading line of the prompt as a preview, without markdown syntax.
   const preview = $derived(
-    ticket.body
-      .split("\n")
-      .map((l) => l.trim())
-      .find((l) => l && !l.startsWith("#")) ?? "",
+    (
+      ticket.body
+        .split("\n")
+        .map((l) => l.trim())
+        .find((l) => l && !l.startsWith("#")) ?? ""
+    )
+      .replace(/^([-*+]|\d+\.|>)\s+/, "")
+      .replace(/[*_`~]/g, ""),
   );
 </script>
 
-<article
+<div
+  role="button"
+  tabindex="0"
+  onclick={() => (app.ticketDialog = { mode: "view", ticketId: ticket.id })}
+  onkeydown={(e) => e.key === "Enter" && (app.ticketDialog = { mode: "view", ticketId: ticket.id })}
   class="cursor-pointer rounded-lg border border-line border-l-4 border-l-(--project) bg-[color-mix(in_srgb,var(--project)_8%,var(--wz-raised))] p-3 shadow-sm transition-[translate,box-shadow] hover:-translate-y-px hover:shadow-md"
   style:--project={projectColor(project?.colorIndex ?? 9)}
 >
@@ -22,4 +30,4 @@
   {#if preview}
     <p class="mt-1 line-clamp-2 text-xs text-muted">{preview}</p>
   {/if}
-</article>
+</div>
