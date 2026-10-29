@@ -57,7 +57,7 @@
     {@const d = event.data}
     {#if d.kind === "user_prompt"}
       <div class="rounded-lg border border-(--project)/40 bg-(--project)/8 p-3">
-        <div class="mb-1 text-[11px] font-semibold tracking-wider text-(--project) uppercase">You</div>
+        <div class="mb-1 text-[11px] font-semibold tracking-wider text-project uppercase">You</div>
         <Markdown source={d.text} />
       </div>
     {:else if d.kind === "assistant_text"}

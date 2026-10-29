@@ -25,13 +25,28 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": [
+      "deb",
+      "appimage",
+      "nsis",
+      "msi"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "category": "DeveloperTool",
+    "shortDescription": "A board for running AI coding agents across projects",
+    "longDescription": "Workzone runs coding agents such as Claude Code and OpenCode headless, one ticket per project at a time, and shows their work on a Kanban board.",
+    "publisher": "Boris Brock",
+    "copyright": "\u00a9 2026 Boris Brock",
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    }
   }
 }

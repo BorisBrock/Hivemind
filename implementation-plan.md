@@ -66,7 +66,7 @@ Planning ──user──▶ Ready ──scheduler──▶ InProgress ──age
 **Exit criterion:** a headless Rust test program that runs a ticket from start to finish on Linux and Windows, including one `ask_user` round trip and a cancel.
 
 ### Phase 1 – Skeleton ✅
-*Done. Rust is pinned to 1.99.1 (`rust-toolchain.toml`) because specta needs ≥ 1.93. `@tauri-apps/api` is pinned to 2.11 to match the newest 2.x `tauri` crate.*
+*Done. Rust is pinned to 1.99.1 (`rust-toolchain.toml`) because specta needs ≥ 1.93. `@tauri-apps/api` and the `tauri` crate are kept on the same minor version (currently 2.12); the release build refuses a mismatch.*
 - Tauri 2 + Svelte + Tailwind scaffold, lint/format, CI (build and test on Linux and Windows).
 - SQLite schema + migrations, Rust repository layer, typed IPC commands (generate TS types with `specta`/`tauri-specta`).
 - Theme system (CSS variables, light/dark + 2–3 themes), app layout: sidebar, board, status bar.
@@ -96,7 +96,8 @@ Planning ──user──▶ Ready ──scheduler──▶ InProgress ──age
 *Done, via `opencode run --format json` (one process per turn, prompt on stdin, `--session` to continue, `--dir` for the project folder) instead of `opencode serve`. `ask_user` and the instructions are injected with `OPENCODE_CONFIG_CONTENT`. Each ticket remembers which agent owns its session. Needs OpenCode ≥ 1.18 for the free models. OpenCode reports a tool call only when it has finished, so long commands appear in the transcript afterwards.*
 - `OpenCodeBackend`, mapped onto the same events and states.
 
-### Phase 6 – Polish
+### Phase 6 – Polish ✅
+*Done: shortcuts (N, P, / or Ctrl+K, Ctrl+,; Ctrl+S / Ctrl+Enter in the editor), board search, desktop notifications + taskbar attention when an agent stops while the window is unfocused, remembered window size/position, app icon (`design/icon.svg`), bundle metadata. Installers are built locally (`npm run bundle:linux`, `npm run bundle:windows`, see README). Decided: no CI releases and no auto-update for now.*
 - Keyboard shortcuts, search/filter, notifications when a ticket reaches Needs Input/Done, packaging (AppImage/deb for Linux, NSIS/MSI for Windows), auto-update.
 
 ### Later / nice to have

@@ -9,6 +9,9 @@
     "core:default",
     "dialog:allow-open",
     "dialog:allow-ask",
-    "dialog:allow-confirm"
+    "dialog:allow-confirm",
+    "notification:default",
+    "core:window:allow-request-user-attention",
+    "core:window:allow-is-focused"
   ]
 }

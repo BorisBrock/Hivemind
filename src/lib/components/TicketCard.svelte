@@ -25,7 +25,7 @@
   class="cursor-pointer rounded-lg border border-line border-l-4 border-l-(--project) bg-[color-mix(in_srgb,var(--project)_8%,var(--wz-raised))] p-3 shadow-sm transition-[translate,box-shadow] hover:-translate-y-px hover:shadow-md"
   style:--project={projectColor(project?.colorIndex ?? 9)}
 >
-  <div class="mb-1 flex items-center gap-1.5 text-[11px] font-medium text-(--project)">
+  <div class="mb-1 flex items-center gap-1.5 text-[11px] font-medium text-project">
     {project?.name}
     {#if ticket.status === "in_progress"}
       <span class="ml-auto size-2 animate-pulse rounded-full bg-(--project)" title="Agent working"></span>

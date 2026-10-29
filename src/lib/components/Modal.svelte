@@ -5,12 +5,15 @@
     title,
     onclose,
     wide = false,
+    accent,
     children,
     footer,
   }: {
     title: string;
     onclose: () => void;
     wide?: boolean;
+    /** CSS colour for a thin strip along the top edge (e.g. the ticket's project colour). */
+    accent?: string;
     children: Snippet;
     footer?: Snippet;
   } = $props();
@@ -24,11 +27,14 @@
   bind:this={dialog}
   {onclose}
   onclick={(e) => e.target === dialog && dialog.close()}
-  class="m-auto flex max-h-[90vh] flex-col rounded-xl border border-line bg-surface p-0 text-fg shadow-2xl backdrop:bg-black/50 backdrop:backdrop-blur-[2px]"
+  class="m-auto flex max-h-[90vh] flex-col overflow-hidden rounded-xl border border-line bg-surface p-0 text-fg shadow-2xl backdrop:bg-black/50 backdrop:backdrop-blur-[2px]"
   class:w-[min(1100px,92vw)]={wide}
   class:h-[85vh]={wide}
   class:w-[min(520px,92vw)]={!wide}
 >
+  {#if accent}
+    <div class="h-1 shrink-0 transition-colors" style:background={accent}></div>
+  {/if}
   <header class="flex items-center justify-between border-b border-line px-5 py-3">
     <h2 class="text-base font-semibold">{title}</h2>
     <button

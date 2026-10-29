@@ -80,28 +80,35 @@
   <div class="space-y-6">
     <section>
       <h3 class="mb-2 text-xs font-semibold tracking-wider text-muted uppercase">Theme</h3>
-      <div class="grid grid-cols-3 gap-2">
-        {#each THEMES as theme (theme.id)}
-          <!-- Each card sets data-theme on itself, so it previews that theme's colours. -->
-          <button
-            data-theme={theme.id}
-            class="rounded-lg border-2 bg-(--wz-bg) p-2 text-left text-(--wz-fg) transition"
-            class:border-accent={app.settings.theme === theme.id}
-            class:border-transparent={app.settings.theme !== theme.id}
-            aria-pressed={app.settings.theme === theme.id}
-            onclick={() => app.updateSettings({ theme: theme.id })}
-          >
-            <div class="mb-2 flex h-10 gap-1">
-              <span class="w-1/4 rounded bg-(--wz-surface)"></span>
-              <span class="flex-1 space-y-1 rounded bg-(--wz-surface) p-1">
-                <span class="block h-2 rounded bg-(--wz-raised)"></span>
-                <span class="block h-2 w-2/3 rounded bg-(--wz-accent)"></span>
-              </span>
-            </div>
-            <span class="text-sm font-medium">{theme.label}</span>
-          </button>
-        {/each}
-      </div>
+      {#each [{ dark: true, label: "Dark" }, { dark: false, label: "Light" }] as group (group.label)}
+        <div class="mb-1 text-[11px] text-muted">{group.label}</div>
+        <div class="mb-3 grid grid-cols-4 gap-2">
+          {#each THEMES.filter((t) => t.dark === group.dark) as theme (theme.id)}
+            {@const selected = app.settings.theme === theme.id}
+            <!-- Each card sets data-theme on itself, so it previews that theme's colours. -->
+            <button
+              data-theme={theme.id}
+              class={[
+                "rounded-lg border-2 bg-(--wz-bg) p-1.5 text-left text-(--wz-fg) transition",
+                selected ? "border-accent" : "border-transparent hover:border-line",
+              ]}
+              aria-pressed={selected}
+              title={theme.label}
+              onclick={() => app.updateSettings({ theme: theme.id })}
+            >
+              <div class="mb-1.5 flex h-9 gap-1">
+                <span class="w-1/4 rounded-sm bg-(--wz-surface)"></span>
+                <span class="flex flex-1 flex-col gap-0.5 rounded-sm bg-(--wz-surface) p-0.5">
+                  <span class="h-2 rounded-sm border-l-2 border-(--p-0) bg-(--wz-raised)"></span>
+                  <span class="h-2 rounded-sm border-l-2 border-(--p-1) bg-(--wz-raised)"></span>
+                  <span class="mt-auto h-1.5 w-1/2 rounded-sm bg-(--wz-accent)"></span>
+                </span>
+              </div>
+              <span class="block truncate text-xs font-medium">{theme.label}</span>
+            </button>
+          {/each}
+        </div>
+      {/each}
     </section>
 
     <section>
@@ -116,7 +123,7 @@
             aria-pressed={app.settings.palette === palette.id}
             onclick={() => app.updateSettings({ palette: palette.id })}
           >
-            <span class="w-16 text-left text-sm font-medium">{palette.label}</span>
+            <span class="w-36 shrink-0 text-left text-sm font-medium">{palette.label}</span>
             <span class="flex gap-1">
               {#each Array(PALETTE_SIZE) as _, i (i)}
                 <span class="size-4 rounded-full" style:background="var(--p-{i})"></span>

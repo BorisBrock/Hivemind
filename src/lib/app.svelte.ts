@@ -11,6 +11,7 @@ import {
   type TicketPatch,
   type TicketStatus,
 } from "./bindings";
+import { notifyAgentStopped } from "./notify";
 import { applyAppearance } from "./theme";
 
 /** Ticket as returned by the backend. */
@@ -77,14 +78,21 @@ class AppState {
   /** Transcripts of tickets opened in this session, kept live by backend events. */
   transcripts = $state<Record<number, TicketEvent[]>>({});
 
+  /** Board search; matches title, prompt and project name. */
+  search = $state("");
+
   projectsById = $derived(new Map(this.projects.map((p) => [p.id, p])));
   runningCount = $derived(this.tickets.filter((t) => t.status === "in_progress").length);
 
   /** Tickets of visible projects, grouped by column, in board order. */
   columns = $derived.by(() => {
     const byStatus = new Map<TicketStatus, Ticket[]>(COLUMNS.map((c) => [c.status, []]));
+    const words = this.search.toLowerCase().split(/\s+/).filter(Boolean);
     for (const t of this.tickets) {
-      if (!this.projectsById.get(t.projectId)?.hidden) byStatus.get(t.status)?.push(t);
+      const project = this.projectsById.get(t.projectId);
+      if (project?.hidden) continue;
+      const text = `${t.title}\n${t.body}\n${project?.name ?? ""}`.toLowerCase();
+      if (words.every((w) => text.includes(w))) byStatus.get(t.status)?.push(t);
     }
     for (const list of byStatus.values()) list.sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
     return byStatus;
@@ -118,6 +126,14 @@ class AppState {
   /** Agent-driven changes arrive as events from the backend. */
   private async listen() {
     await events.ticketChanged.listen(({ payload }) => {
+      const before = this.tickets.find((t) => t.id === payload.id);
+      if (
+        before?.status === "in_progress" &&
+        (payload.status === "needs_input" || payload.status === "done")
+      ) {
+        const project = this.projectsById.get(payload.projectId)?.name ?? "";
+        notifyAgentStopped(payload, project).catch(() => {}); // notifications are best effort
+      }
       const exists = this.tickets.some((t) => t.id === payload.id);
       this.tickets = exists
         ? this.tickets.map((t) => (t.id === payload.id ? payload : t))

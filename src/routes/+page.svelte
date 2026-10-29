@@ -9,7 +9,37 @@
   import TicketDialog from "$lib/components/TicketDialog.svelte";
 
   onMount(() => app.load());
+
+  const dialogOpen = $derived(!!(app.settingsOpen || app.projectDialog || app.ticketDialog));
+
+  /** Global shortcuts; plain keys only when not typing somewhere. */
+  function onkeydown(e: KeyboardEvent) {
+    const typing =
+      e.target instanceof Element &&
+      e.target.closest("input, textarea, select, [contenteditable=true], .cm-editor");
+    const mod = e.ctrlKey || e.metaKey;
+    if (mod && e.key === ",") {
+      e.preventDefault();
+      app.settingsOpen = true;
+      return;
+    }
+    if (dialogOpen) return;
+    if ((mod && e.key.toLowerCase() === "k") || (!typing && !mod && e.key === "/")) {
+      e.preventDefault();
+      document.getElementById("board-search")?.focus();
+    } else if (!typing && !mod && !e.altKey && e.key.toLowerCase() === "n") {
+      if (app.projects.some((p) => !p.hidden)) {
+        e.preventDefault();
+        app.ticketDialog = { mode: "create" };
+      }
+    } else if (!typing && !mod && !e.altKey && e.key.toLowerCase() === "p") {
+      e.preventDefault();
+      app.projectDialog = { mode: "create" };
+    }
+  }
 </script>
+
+<svelte:window {onkeydown} />
 
 <div class="flex h-screen flex-col">
   <div class="flex min-h-0 flex-1">

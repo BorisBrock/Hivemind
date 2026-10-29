@@ -77,6 +77,20 @@
     close();
   }
 
+  /** Ctrl+S saves, Ctrl+Enter saves and sends to Ready (while the ticket is editable). */
+  function editorShortcut(e: KeyboardEvent) {
+    if (!editable || !(e.ctrlKey || e.metaKey)) return;
+    if (e.key.toLowerCase() === "s" && (dialog.mode === "create" || dirty)) {
+      e.preventDefault();
+      e.stopPropagation();
+      save(false);
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      e.stopPropagation();
+      save(true);
+    }
+  }
+
   async function move(to: "planning") {
     if (ticket && (await app.moveTicket(ticket.id, to))) close();
   }
@@ -93,19 +107,48 @@
   }
 </script>
 
-<Modal title={dialog.mode === "create" ? "New ticket" : (ticket?.title ?? "Ticket")} onclose={close} wide>
-  <div class="flex h-full flex-col gap-4" style:--project={projectColor(project?.colorIndex ?? 9)}>
+<Modal
+  title={dialog.mode === "create" ? "New ticket" : (ticket?.title ?? "Ticket")}
+  accent={projectColor(project?.colorIndex ?? 9)}
+  onclose={close}
+  wide
+>
+  <!-- Capture phase, so the editor doesn't take Ctrl+Enter for itself. -->
+  <div
+    class="flex h-full flex-col gap-4"
+    style:--project={projectColor(project?.colorIndex ?? 9)}
+    onkeydowncapture={editorShortcut}
+    role="presentation"
+  >
     <div class="flex items-center gap-3">
       {#if dialog.mode === "create"}
-        <select
-          class="rounded-md border border-line bg-raised px-2 py-1.5 text-sm"
-          bind:value={projectId}
-          aria-label="Project"
-        >
-          {#each visibleProjects as p (p.id)}<option value={p.id}>{p.name}</option>{/each}
-        </select>
+        <div class="flex min-w-0 flex-1 flex-wrap items-center gap-2" role="radiogroup" aria-label="Project">
+          {#each visibleProjects as p (p.id)}
+            {@const selected = p.id === projectId}
+            <button
+              type="button"
+              role="radio"
+              aria-checked={selected}
+              style:--chip={projectColor(p.colorIndex)}
+              class={[
+                "flex items-center gap-2 rounded-full border px-3 py-1 text-sm transition-colors",
+                selected
+                  ? "border-(--chip) bg-(--chip)/15 font-medium text-fg"
+                  : "border-line text-muted hover:bg-raised hover:text-fg",
+              ]}
+              onclick={() => (projectId = p.id)}
+            >
+              <span class="size-2 rounded-full bg-(--chip)"></span>
+              {p.name}
+            </button>
+          {/each}
+          {#if project}
+            <span class="ml-1 truncate font-mono text-xs text-muted" title={project.path}>{project.path}</span
+            >
+          {/if}
+        </div>
       {:else}
-        <span class="rounded-full bg-(--project)/15 px-2.5 py-0.5 text-xs font-medium text-(--project)">
+        <span class="rounded-full bg-(--project)/15 px-2.5 py-0.5 text-xs font-medium text-project">
           {project?.name}
         </span>
         <span class="rounded-full bg-raised px-2.5 py-0.5 text-xs text-muted">{statusLabel}</span>
@@ -168,10 +211,18 @@
   {#snippet footer()}
     {#if dialog.mode === "create"}
       <button class="ml-auto rounded-md px-3 py-1.5 hover:bg-raised" onclick={close}>Cancel</button>
-      <button class="rounded-md border border-line px-3 py-1.5 hover:bg-raised" onclick={() => save(false)}>
+      <button
+        class="rounded-md border border-line px-3 py-1.5 hover:bg-raised"
+        title="Ctrl+S"
+        onclick={() => save(false)}
+      >
         Create
       </button>
-      <button class="rounded-md bg-accent px-4 py-1.5 font-medium text-bg" onclick={() => save(true)}>
+      <button
+        class="rounded-md bg-accent px-4 py-1.5 font-medium text-bg"
+        title="Ctrl+Enter"
+        onclick={() => save(true)}
+      >
         Create &amp; send to Ready
       </button>
     {:else if ticket?.status === "planning"}
@@ -181,11 +232,16 @@
       <button
         class="ml-auto rounded-md border border-line px-3 py-1.5 hover:bg-raised disabled:opacity-50"
         disabled={!dirty}
+        title="Ctrl+S"
         onclick={() => save(false)}
       >
         Save
       </button>
-      <button class="rounded-md bg-accent px-4 py-1.5 font-medium text-bg" onclick={() => save(true)}>
+      <button
+        class="rounded-md bg-accent px-4 py-1.5 font-medium text-bg"
+        title="Ctrl+Enter"
+        onclick={() => save(true)}
+      >
         Send to Ready
       </button>
     {:else if ticket?.status === "ready"}
