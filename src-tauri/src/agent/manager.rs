@@ -1,0 +1,455 @@
+//! Owns every agent-driven ticket transition: starting Ready tickets (one per project),
+//! following a run to its end, user replies, sending back, cancelling and crash recovery.
+
+use std::collections::HashMap;
+use std::future::Future;
+use std::path::PathBuf;
+use std::pin::Pin;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use sqlx::SqlitePool;
+use tokio::sync::{mpsc, oneshot};
+
+use super::{AgentBackend, AgentEvent, RunRequest};
+use crate::error::{AppError, AppResult, invalid};
+use crate::models::{EventData, Ticket, TicketEvent, TicketStatus};
+use crate::repo;
+
+/// Tells the UI about changes the agent manager makes.
+pub trait Notifier: Send + Sync {
+    fn ticket_changed(&self, ticket: &Ticket);
+    fn event_added(&self, event: &TicketEvent);
+}
+
+pub struct AgentManager {
+    db: SqlitePool,
+    backend: Arc<dyn AgentBackend>,
+    notifier: Arc<dyn Notifier>,
+    /// Cancel handles of running agents, by ticket id. A run that is no longer in here
+    /// when it ends was cancelled, and its ticket is no longer its business.
+    runs: Mutex<HashMap<i64, oneshot::Sender<oneshot::Sender<()>>>>,
+    /// Serialises scheduling so a project never gets two runs.
+    schedule: tokio::sync::Mutex<()>,
+}
+
+impl AgentManager {
+    pub fn new(db: SqlitePool, backend: Arc<dyn AgentBackend>, notifier: Arc<dyn Notifier>) -> Arc<Self> {
+        Arc::new(Self { db, backend, notifier, runs: Mutex::default(), schedule: Default::default() })
+    }
+
+    /// Starts the top Ready ticket of every project that has no active ticket.
+    // Boxed with an explicit `Send`: a finished run kicks the scheduler again, and that
+    // recursion is more than the compiler can prove `Send` on its own.
+    pub fn kick(self: &Arc<Self>) -> Pin<Box<dyn Future<Output = AppResult<()>> + Send + '_>> {
+        Box::pin(async move {
+            let _guard = self.schedule.lock().await;
+            for project_id in repo::idle_projects_with_ready(&self.db).await? {
+                if let Some(plan) = repo::claim_next_ready(&self.db, project_id).await? {
+                    self.notifier.ticket_changed(&plan.ticket);
+                    self.start(plan.ticket, plan.cwd.into(), plan.prompt, plan.resume).await?;
+                }
+            }
+            Ok(())
+        })
+    }
+
+    /// Answers an agent that is waiting in Needs Input; continues the same session.
+    pub async fn reply(self: &Arc<Self>, ticket_id: i64, text: &str) -> AppResult<Ticket> {
+        let text = text.trim();
+        if text.is_empty() {
+            return Err(invalid("the reply must not be empty"));
+        }
+        let ticket = repo::get_ticket(&self.db, ticket_id).await?;
+        if ticket.status != TicketStatus::NeedsInput || self.is_running(ticket_id) {
+            return Err(AppError::InvalidTransition { from: ticket.status, to: TicketStatus::InProgress });
+        }
+        let cwd = repo::get_project(&self.db, ticket.project_id).await?.path;
+        let ticket = self.set_status(ticket_id, TicketStatus::InProgress).await?;
+        let prompt = match ticket.agent_session_id {
+            Some(_) => text.to_string(),
+            // The previous run never got a session: start over with the full task.
+            None => format!("{}\n\n{text}", ticket.body),
+        };
+        let resume = ticket.agent_session_id.clone();
+        self.start(ticket.clone(), cwd.into(), prompt, resume).await?;
+        Ok(ticket)
+    }
+
+    /// Done → Ready with a comment; the scheduler continues the session with it.
+    pub async fn send_back(self: &Arc<Self>, ticket_id: i64, comment: &str) -> AppResult<Ticket> {
+        let ticket = repo::send_back_to_ready(&self.db, ticket_id, comment).await?;
+        self.notifier.ticket_changed(&ticket);
+        self.kick().await?;
+        repo::get_ticket(&self.db, ticket_id).await
+    }
+
+    /// Stops the agent of an active ticket and moves it back to Planning.
+    pub async fn cancel(self: &Arc<Self>, ticket_id: i64) -> AppResult<Ticket> {
+        let ticket = repo::get_ticket(&self.db, ticket_id).await?;
+        if !ticket.status.is_active() {
+            return Err(AppError::InvalidTransition { from: ticket.status, to: TicketStatus::Planning });
+        }
+        let cancel = self.runs.lock().unwrap().remove(&ticket_id);
+        if let Some(cancel) = cancel {
+            let (ack_tx, ack_rx) = oneshot::channel();
+            if cancel.send(ack_tx).is_ok() {
+                let _ = ack_rx.await;
+            }
+        }
+        let ticket = repo::reset_to_planning(&self.db, ticket_id).await?;
+        self.record(
+            ticket_id,
+            EventData::System { message: "Cancelled. The next run starts a new session.".into() },
+        )
+        .await?;
+        self.notifier.ticket_changed(&ticket);
+        self.kick().await?;
+        Ok(ticket)
+    }
+
+    /// At start-up: tickets left In Progress lost their agent; let the user continue them.
+    pub async fn recover(&self) -> AppResult<()> {
+        for id in repo::mark_interrupted(&self.db).await? {
+            let message = "Interrupted: Workzone was closed while the agent was working. \
+                           Reply to let it continue, or cancel the ticket."
+                .into();
+            self.record(id, EventData::System { message }).await?;
+        }
+        Ok(())
+    }
+
+    /// On app exit: stop all agents without touching ticket states (`recover` handles them).
+    pub async fn shutdown(&self) {
+        let runs: Vec<_> = self.runs.lock().unwrap().drain().collect();
+        let mut acks = Vec::new();
+        for (_, cancel) in runs {
+            let (tx, rx) = oneshot::channel();
+            if cancel.send(tx).is_ok() {
+                acks.push(rx);
+            }
+        }
+        let _ = tokio::time::timeout(Duration::from_secs(5), futures_all(acks)).await;
+    }
+
+    #[cfg(test)]
+    pub fn running_count(&self) -> usize {
+        self.runs.lock().unwrap().len()
+    }
+
+    fn is_running(&self, ticket_id: i64) -> bool {
+        self.runs.lock().unwrap().contains_key(&ticket_id)
+    }
+
+    /// Starts an agent run for a ticket that is already In Progress.
+    async fn start(
+        self: &Arc<Self>,
+        ticket: Ticket,
+        cwd: PathBuf,
+        prompt: String,
+        resume: Option<String>,
+    ) -> AppResult<()> {
+        if resume.is_none() {
+            self.record(ticket.id, EventData::System { message: "Started a new agent session.".into() })
+                .await?;
+        }
+        self.record(ticket.id, EventData::UserPrompt { text: prompt.clone() }).await?;
+        match self.backend.start(RunRequest { cwd, prompt, resume }) {
+            Ok(run) => {
+                self.runs.lock().unwrap().insert(ticket.id, run.cancel);
+                tokio::spawn(self.clone().follow(ticket.id, run.events));
+            }
+            Err(e) => {
+                self.record(ticket.id, EventData::Error { message: e.to_string() }).await?;
+                self.set_status(ticket.id, TicketStatus::Done).await?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Records a run's events and moves the ticket on when the run ends.
+    async fn follow(self: Arc<Self>, ticket_id: i64, mut events: mpsc::Receiver<AgentEvent>) {
+        if let Err(e) = self.follow_inner(ticket_id, &mut events).await {
+            // Database trouble: make sure the ticket doesn't stay "running" forever.
+            let _ = self.record(ticket_id, EventData::Error { message: e.to_string() }).await;
+            if self.runs.lock().unwrap().remove(&ticket_id).is_some() {
+                let _ = self.set_status(ticket_id, TicketStatus::NeedsInput).await;
+            }
+        }
+    }
+
+    async fn follow_inner(
+        self: &Arc<Self>,
+        ticket_id: i64,
+        events: &mut mpsc::Receiver<AgentEvent>,
+    ) -> AppResult<()> {
+        let mut asked = false;
+        let mut blocked: Option<Option<String>> = None;
+        let mut failed = false;
+        let mut exit_error = None;
+        while let Some(event) = events.recv().await {
+            match event {
+                AgentEvent::Session(id) => repo::set_session(&self.db, ticket_id, &id).await?,
+                AgentEvent::Transcript(data) => {
+                    asked |= matches!(data, EventData::Question { .. });
+                    failed |= matches!(data, EventData::TurnResult { is_error: true, .. });
+                    self.record(ticket_id, data).await?;
+                }
+                AgentEvent::Blocked { needs_action } => blocked = Some(needs_action),
+                AgentEvent::Exited { error } => exit_error = error,
+            }
+        }
+        if self.runs.lock().unwrap().remove(&ticket_id).is_none() {
+            return Ok(()); // cancelled or shut down
+        }
+        let status = if let Some(message) = exit_error {
+            self.record(ticket_id, EventData::Error { message }).await?;
+            TicketStatus::Done
+        } else if failed {
+            TicketStatus::Done
+        } else if asked {
+            TicketStatus::NeedsInput
+        } else if let Some(needs_action) = blocked {
+            // Asked in plain text instead of using the tool.
+            if let Some(question) = needs_action {
+                self.record(ticket_id, EventData::Question { question, options: vec![] }).await?;
+            }
+            TicketStatus::NeedsInput
+        } else {
+            TicketStatus::Done
+        };
+        self.set_status(ticket_id, status).await?;
+        if status == TicketStatus::Done {
+            self.kick().await?; // the project is free for its next ticket
+        }
+        Ok(())
+    }
+
+    async fn set_status(&self, ticket_id: i64, status: TicketStatus) -> AppResult<Ticket> {
+        let ticket = repo::set_status(&self.db, ticket_id, status).await?;
+        self.notifier.ticket_changed(&ticket);
+        Ok(ticket)
+    }
+
+    async fn record(&self, ticket_id: i64, data: EventData) -> AppResult<()> {
+        let event = repo::append_event(&self.db, ticket_id, data).await?;
+        self.notifier.event_added(&event);
+        Ok(())
+    }
+}
+
+async fn futures_all(receivers: Vec<oneshot::Receiver<()>>) {
+    for rx in receivers {
+        let _ = rx.await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agent::Run;
+    use crate::db;
+    use crate::models::{NewProject, NewTicket};
+
+    /// A backend whose runs the test drives by hand.
+    #[derive(Default)]
+    struct FakeBackend {
+        runs: Mutex<Vec<FakeRun>>,
+    }
+
+    struct FakeRun {
+        request: RunRequest,
+        events: mpsc::Sender<AgentEvent>,
+        cancel: Option<oneshot::Receiver<oneshot::Sender<()>>>,
+    }
+
+    impl AgentBackend for FakeBackend {
+        fn start(&self, request: RunRequest) -> AppResult<Run> {
+            if request.prompt == "fail to start" {
+                return Err(invalid("no agent installed"));
+            }
+            let (tx, rx) = mpsc::channel(16);
+            let (cancel_tx, cancel_rx) = oneshot::channel();
+            self.runs.lock().unwrap().push(FakeRun { request, events: tx, cancel: Some(cancel_rx) });
+            Ok(Run { events: rx, cancel: cancel_tx })
+        }
+    }
+
+    impl FakeBackend {
+        fn requests(&self) -> Vec<RunRequest> {
+            self.runs.lock().unwrap().iter().map(|r| r.request.clone()).collect()
+        }
+
+        /// Plays a whole turn on run `i` and ends it.
+        async fn finish(&self, i: usize, events: Vec<AgentEvent>) {
+            let tx = self.runs.lock().unwrap()[i].events.clone();
+            for e in events {
+                tx.send(e).await.unwrap();
+            }
+            tx.send(AgentEvent::Exited { error: None }).await.unwrap();
+            self.runs.lock().unwrap()[i].events = mpsc::channel(1).0; // drop the sender: run over
+        }
+    }
+
+    struct NoNotifier;
+    impl Notifier for NoNotifier {
+        fn ticket_changed(&self, _: &Ticket) {}
+        fn event_added(&self, _: &TicketEvent) {}
+    }
+
+    struct Env {
+        db: SqlitePool,
+        fake: Arc<FakeBackend>,
+        manager: Arc<AgentManager>,
+    }
+
+    async fn env() -> Env {
+        let db = db::open_in_memory().await.unwrap();
+        let fake = Arc::new(FakeBackend::default());
+        let manager = AgentManager::new(db.clone(), fake.clone(), Arc::new(NoNotifier));
+        Env { db, fake, manager }
+    }
+
+    impl Env {
+        async fn project(&self) -> i64 {
+            let path = std::env::temp_dir().to_string_lossy().into_owned();
+            repo::create_project(&self.db, NewProject { name: "p".into(), path, color_index: None })
+                .await
+                .unwrap()
+                .id
+        }
+
+        async fn ready(&self, project_id: i64, body: &str) -> i64 {
+            let t = NewTicket { project_id, title: body.into(), body: body.into() };
+            let id = repo::create_ticket(&self.db, t).await.unwrap().id;
+            repo::move_ticket(&self.db, id, TicketStatus::Ready, None).await.unwrap();
+            self.manager.kick().await.unwrap();
+            id
+        }
+
+        async fn status(&self, id: i64) -> TicketStatus {
+            repo::get_ticket(&self.db, id).await.unwrap().status
+        }
+
+        /// Waits for the background follower to process what the test sent.
+        async fn wait_for(&self, id: i64, status: TicketStatus) {
+            for _ in 0..200 {
+                if self.status(id).await == status {
+                    return;
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+            panic!("ticket {id} never reached {status:?}, is {:?}", self.status(id).await);
+        }
+    }
+
+    fn text(t: &str) -> AgentEvent {
+        AgentEvent::Transcript(EventData::AssistantText { text: t.into() })
+    }
+
+    #[tokio::test]
+    async fn runs_one_ticket_per_project_in_order() {
+        let e = env().await;
+        let (p1, p2) = (e.project().await, e.project().await);
+        let a = e.ready(p1, "a").await;
+        let b = e.ready(p1, "b").await;
+        let c = e.ready(p2, "c").await;
+        assert_eq!(
+            (e.status(a).await, e.status(b).await, e.status(c).await),
+            (TicketStatus::InProgress, TicketStatus::Ready, TicketStatus::InProgress)
+        );
+        assert_eq!(e.manager.running_count(), 2);
+
+        e.fake.finish(0, vec![AgentEvent::Session("s-a".into()), text("done")]).await;
+        e.wait_for(a, TicketStatus::Done).await;
+        e.wait_for(b, TicketStatus::InProgress).await;
+        let prompts: Vec<_> = e.fake.requests().into_iter().map(|r| (r.prompt, r.resume)).collect();
+        assert_eq!(prompts, [("a".into(), None), ("c".into(), None), ("b".into(), None)]);
+        assert_eq!(repo::get_ticket(&e.db, a).await.unwrap().agent_session_id.as_deref(), Some("s-a"));
+    }
+
+    #[tokio::test]
+    async fn questions_wait_for_a_reply_that_resumes_the_session() {
+        let e = env().await;
+        let p = e.project().await;
+        let t = e.ready(p, "task").await;
+        let question = EventData::Question { question: "A or B?".into(), options: vec![] };
+        e.fake.finish(0, vec![AgentEvent::Session("s-1".into()), AgentEvent::Transcript(question)]).await;
+        e.wait_for(t, TicketStatus::NeedsInput).await;
+
+        // The project stays busy while the agent waits.
+        let other = e.ready(p, "other").await;
+        assert_eq!(e.status(other).await, TicketStatus::Ready);
+
+        e.manager.reply(t, "B").await.unwrap();
+        assert_eq!(e.status(t).await, TicketStatus::InProgress);
+        let last = e.fake.requests().pop().unwrap();
+        assert_eq!((last.prompt.as_str(), last.resume.as_deref()), ("B", Some("s-1")));
+    }
+
+    #[tokio::test]
+    async fn plain_text_questions_are_caught_by_the_turn_summary() {
+        let e = env().await;
+        let p = e.project().await;
+        let t = e.ready(p, "task").await;
+        e.fake.finish(0, vec![AgentEvent::Blocked { needs_action: Some("pick a name".into()) }]).await;
+        e.wait_for(t, TicketStatus::NeedsInput).await;
+        let events = repo::list_events(&e.db, t).await.unwrap();
+        assert!(
+            matches!(&events.last().unwrap().data, EventData::Question { question, .. } if question == "pick a name")
+        );
+    }
+
+    #[tokio::test]
+    async fn cancel_stops_the_agent_and_frees_the_project() {
+        let e = env().await;
+        let p = e.project().await;
+        let t = e.ready(p, "task").await;
+        let next = e.ready(p, "next").await;
+
+        let cancel_rx = e.fake.runs.lock().unwrap()[0].cancel.take().unwrap();
+        let backend_side = tokio::spawn(async move {
+            let ack = cancel_rx.await.unwrap();
+            ack.send(()).unwrap();
+        });
+        let ticket = e.manager.cancel(t).await.unwrap();
+        backend_side.await.unwrap();
+        assert_eq!((ticket.status, ticket.agent_session_id), (TicketStatus::Planning, None));
+        assert_eq!(e.status(next).await, TicketStatus::InProgress);
+
+        // The cancelled run ending later must not move the ticket.
+        e.fake.finish(0, vec![text("late")]).await;
+        tokio::time::sleep(Duration::from_millis(30)).await;
+        assert_eq!(e.status(t).await, TicketStatus::Planning);
+    }
+
+    #[tokio::test]
+    async fn errors_end_in_done_and_send_back_continues() {
+        let e = env().await;
+        let p = e.project().await;
+        let t = e.ready(p, "task").await;
+        let tx = e.fake.runs.lock().unwrap()[0].events.clone();
+        tx.send(AgentEvent::Session("s-1".into())).await.unwrap();
+        tx.send(AgentEvent::Exited { error: Some("crashed".into()) }).await.unwrap();
+        drop(tx);
+        e.fake.runs.lock().unwrap()[0].events = mpsc::channel(1).0;
+        e.wait_for(t, TicketStatus::Done).await;
+
+        e.manager.send_back(t, "try again").await.unwrap();
+        assert_eq!(e.status(t).await, TicketStatus::InProgress);
+        let last = e.fake.requests().pop().unwrap();
+        assert_eq!((last.prompt.as_str(), last.resume.as_deref()), ("try again", Some("s-1")));
+    }
+
+    #[tokio::test]
+    async fn failing_to_start_is_reported() {
+        let e = env().await;
+        let p = e.project().await;
+        let t = e.ready(p, "fail to start").await;
+        assert_eq!(e.status(t).await, TicketStatus::Done);
+        let events = repo::list_events(&e.db, t).await.unwrap();
+        assert!(
+            matches!(&events.last().unwrap().data, EventData::Error { message } if message.contains("no agent"))
+        );
+    }
+}

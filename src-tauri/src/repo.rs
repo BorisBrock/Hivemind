@@ -196,13 +196,21 @@ pub async fn move_ticket(
     };
     t.status = to;
     t.updated_at = Utc::now();
-    sqlx::query("UPDATE tickets SET status = ?, position = ?, updated_at = ? WHERE id = ?")
-        .bind(t.status)
-        .bind(t.position)
-        .bind(t.updated_at)
-        .bind(id)
-        .execute(db)
-        .await?;
+    let from = get_ticket(db, id).await?.status;
+    // Only if nothing (e.g. the scheduler) changed the status since we read it.
+    let n = sqlx::query(
+        "UPDATE tickets SET status = ?, position = ?, updated_at = ? WHERE id = ? AND status = ?",
+    )
+    .bind(t.status)
+    .bind(t.position)
+    .bind(t.updated_at)
+    .bind(id)
+    .bind(from)
+    .execute(db)
+    .await?;
+    if n.rows_affected() == 0 {
+        return Err(AppError::InvalidTransition { from, to });
+    }
     Ok(t)
 }
 
@@ -222,6 +230,179 @@ async fn end_of_column(db: &SqlitePool, status: TicketStatus) -> AppResult<f64> 
         .fetch_one(db)
         .await?;
     Ok(max.map_or(0.0, |m| m + 1.0))
+}
+
+// ---- agent runs -------------------------------------------------------------
+
+/// What the agent should do for a ticket that was just claimed for a run.
+#[derive(Debug, Clone)]
+pub struct RunPlan {
+    pub ticket: Ticket,
+    pub cwd: String,
+    pub prompt: String,
+    /// Session to continue; `None` starts a fresh session with the ticket body.
+    pub resume: Option<String>,
+}
+
+/// Projects that have a Ready ticket and no active one.
+pub async fn idle_projects_with_ready(db: &SqlitePool) -> AppResult<Vec<i64>> {
+    Ok(sqlx::query_scalar(
+        "SELECT DISTINCT project_id FROM tickets t WHERE status = 'ready' AND NOT EXISTS (
+             SELECT 1 FROM tickets a WHERE a.project_id = t.project_id
+             AND a.status IN ('in_progress', 'needs_input'))",
+    )
+    .fetch_all(db)
+    .await?)
+}
+
+/// Claims the top Ready ticket of an idle project: moves it to In Progress and consumes
+/// its pending prompt. Returns `None` if there is nothing to start.
+pub async fn claim_next_ready(db: &SqlitePool, project_id: i64) -> AppResult<Option<RunPlan>> {
+    let mut tx = db.begin().await?;
+    let busy: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM tickets WHERE project_id = ? AND status IN ('in_progress', 'needs_input')",
+    )
+    .bind(project_id)
+    .fetch_one(&mut *tx)
+    .await?;
+    let next: Option<Ticket> = if busy > 0 {
+        None
+    } else {
+        sqlx::query_as(
+            "SELECT * FROM tickets WHERE project_id = ? AND status = 'ready' ORDER BY position LIMIT 1",
+        )
+        .bind(project_id)
+        .fetch_optional(&mut *tx)
+        .await?
+    };
+    let Some(mut ticket) = next else { return Ok(None) };
+    let cwd: String = sqlx::query_scalar("SELECT path FROM projects WHERE id = ?")
+        .bind(project_id)
+        .fetch_one(&mut *tx)
+        .await?;
+
+    let (prompt, resume) = match (ticket.pending_prompt.take(), &ticket.agent_session_id) {
+        (Some(comment), Some(session)) => (comment, Some(session.clone())),
+        // No session to continue (the last run never started): the full task plus the comment.
+        (Some(comment), None) => (format!("{}\n\n{comment}", ticket.body), None),
+        (None, _) => (ticket.body.clone(), None),
+    };
+    ticket.status = TicketStatus::InProgress;
+    ticket.updated_at = Utc::now();
+    sqlx::query("UPDATE tickets SET status = ?, pending_prompt = NULL, updated_at = ? WHERE id = ?")
+        .bind(ticket.status)
+        .bind(ticket.updated_at)
+        .bind(ticket.id)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    Ok(Some(RunPlan { ticket, cwd, prompt, resume }))
+}
+
+/// Status change made by the agent manager (not subject to the user's move rules).
+pub async fn set_status(db: &SqlitePool, id: i64, status: TicketStatus) -> AppResult<Ticket> {
+    sqlx::query("UPDATE tickets SET status = ?, updated_at = ? WHERE id = ?")
+        .bind(status)
+        .bind(Utc::now())
+        .bind(id)
+        .execute(db)
+        .await?;
+    get_ticket(db, id).await
+}
+
+pub async fn set_session(db: &SqlitePool, id: i64, session_id: &str) -> AppResult<()> {
+    sqlx::query("UPDATE tickets SET agent_session_id = ? WHERE id = ?")
+        .bind(session_id)
+        .bind(id)
+        .execute(db)
+        .await?;
+    Ok(())
+}
+
+/// Done → Ready with a comment that becomes the next prompt of the same session.
+pub async fn send_back_to_ready(db: &SqlitePool, id: i64, comment: &str) -> AppResult<Ticket> {
+    let t = get_ticket(db, id).await?;
+    if t.status != TicketStatus::Done {
+        return Err(AppError::InvalidTransition { from: t.status, to: TicketStatus::Ready });
+    }
+    let comment = non_empty(comment, "comment")?;
+    sqlx::query(
+        "UPDATE tickets SET status = 'ready', pending_prompt = ?, position = ?, updated_at = ? WHERE id = ?",
+    )
+    .bind(comment)
+    .bind(end_of_column(db, TicketStatus::Ready).await?)
+    .bind(Utc::now())
+    .bind(id)
+    .execute(db)
+    .await?;
+    get_ticket(db, id).await
+}
+
+/// Back to Planning after a cancel; the next run starts a fresh session.
+pub async fn reset_to_planning(db: &SqlitePool, id: i64) -> AppResult<Ticket> {
+    sqlx::query(
+        "UPDATE tickets SET status = 'planning', agent_session_id = NULL, pending_prompt = NULL,
+         position = ?, updated_at = ? WHERE id = ?",
+    )
+    .bind(end_of_column(db, TicketStatus::Planning).await?)
+    .bind(Utc::now())
+    .bind(id)
+    .execute(db)
+    .await?;
+    get_ticket(db, id).await
+}
+
+/// Tickets left In Progress by a previous app run; their agent process is gone.
+pub async fn mark_interrupted(db: &SqlitePool) -> AppResult<Vec<i64>> {
+    Ok(sqlx::query_scalar(
+        "UPDATE tickets SET status = 'needs_input', updated_at = ? WHERE status = 'in_progress' RETURNING id",
+    )
+    .bind(Utc::now())
+    .fetch_all(db)
+    .await?)
+}
+
+// ---- transcript -------------------------------------------------------------
+
+pub async fn list_events(db: &SqlitePool, ticket_id: i64) -> AppResult<Vec<TicketEvent>> {
+    let rows: Vec<(i64, i64, i64, String, chrono::DateTime<Utc>)> = sqlx::query_as(
+        "SELECT id, ticket_id, seq, payload, created_at FROM ticket_events WHERE ticket_id = ? ORDER BY seq",
+    )
+    .bind(ticket_id)
+    .fetch_all(db)
+    .await?;
+    rows.into_iter()
+        .map(|(id, ticket_id, seq, payload, created_at)| {
+            Ok(TicketEvent { id, ticket_id, seq, created_at, data: serde_json::from_str(&payload)? })
+        })
+        .collect()
+}
+
+pub async fn append_event(db: &SqlitePool, ticket_id: i64, data: EventData) -> AppResult<TicketEvent> {
+    let payload = serde_json::to_string(&data)?;
+    let kind = payload_kind(&payload);
+    let created_at = Utc::now();
+    let (id, seq): (i64, i64) = sqlx::query_as(
+        "INSERT INTO ticket_events (ticket_id, seq, kind, payload, created_at)
+         VALUES (?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM ticket_events WHERE ticket_id = ?), ?, ?, ?)
+         RETURNING id, seq",
+    )
+    .bind(ticket_id)
+    .bind(ticket_id)
+    .bind(kind)
+    .bind(payload)
+    .bind(created_at)
+    .fetch_one(db)
+    .await?;
+    Ok(TicketEvent { id, ticket_id, seq, created_at, data })
+}
+
+/// The serde tag of an `EventData` JSON string, stored separately for querying.
+fn payload_kind(payload: &str) -> String {
+    serde_json::from_str::<serde_json::Value>(payload)
+        .ok()
+        .and_then(|v| v["kind"].as_str().map(String::from))
+        .unwrap_or_default()
 }
 
 // ---- settings ---------------------------------------------------------------
@@ -345,6 +526,68 @@ mod tests {
         assert!(matches!(update_ticket(&db, t.id, body).await, Err(AppError::NotEditable)));
         let title = TicketPatch { title: Some("renamed".into()), ..Default::default() };
         assert_eq!(update_ticket(&db, t.id, title).await.unwrap().title, "renamed");
+    }
+
+    #[tokio::test]
+    async fn claiming_respects_one_active_ticket_per_project() {
+        let db = db::open_in_memory().await.unwrap();
+        let p = project(&db, "p").await;
+        let t1 = ticket(&db, p.id, "1").await;
+        let t2 = ticket(&db, p.id, "2").await;
+        move_ticket(&db, t1.id, TicketStatus::Ready, None).await.unwrap();
+        move_ticket(&db, t2.id, TicketStatus::Ready, None).await.unwrap();
+        assert_eq!(idle_projects_with_ready(&db).await.unwrap(), [p.id]);
+
+        let plan = claim_next_ready(&db, p.id).await.unwrap().unwrap();
+        assert_eq!((plan.ticket.id, plan.prompt.as_str(), plan.resume), (t1.id, "do it", None));
+        assert!(claim_next_ready(&db, p.id).await.unwrap().is_none(), "project is busy");
+        assert!(idle_projects_with_ready(&db).await.unwrap().is_empty());
+        // The scheduler took it, so the user can no longer drag it back.
+        assert!(move_ticket(&db, t1.id, TicketStatus::Planning, None).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn sending_back_resumes_the_session_with_the_comment() {
+        let db = db::open_in_memory().await.unwrap();
+        let p = project(&db, "p").await;
+        let t = ticket(&db, p.id, "t").await;
+        move_ticket(&db, t.id, TicketStatus::Ready, None).await.unwrap();
+        claim_next_ready(&db, p.id).await.unwrap().unwrap();
+        set_session(&db, t.id, "sess-1").await.unwrap();
+        set_status(&db, t.id, TicketStatus::Done).await.unwrap();
+
+        assert!(send_back_to_ready(&db, t.id, "  ").await.is_err(), "comment required");
+        send_back_to_ready(&db, t.id, "also add tests").await.unwrap();
+        let plan = claim_next_ready(&db, p.id).await.unwrap().unwrap();
+        assert_eq!(plan.prompt, "also add tests");
+        assert_eq!(plan.resume.as_deref(), Some("sess-1"));
+
+        let reset = reset_to_planning(&db, t.id).await.unwrap();
+        assert_eq!((reset.status, reset.agent_session_id), (TicketStatus::Planning, None));
+    }
+
+    #[tokio::test]
+    async fn events_are_numbered_and_round_trip() {
+        let db = db::open_in_memory().await.unwrap();
+        let p = project(&db, "p").await;
+        let t = ticket(&db, p.id, "t").await;
+        let a = append_event(&db, t.id, EventData::UserPrompt { text: "hi".into() }).await.unwrap();
+        let q = EventData::Question { question: "A or B?".into(), options: vec!["A".into(), "B".into()] };
+        let b = append_event(&db, t.id, q.clone()).await.unwrap();
+        assert_eq!((a.seq, b.seq), (1, 2));
+        let events = list_events(&db, t.id).await.unwrap();
+        assert_eq!(events.last().unwrap().data, q);
+    }
+
+    #[tokio::test]
+    async fn interrupted_runs_wait_for_the_user() {
+        let db = db::open_in_memory().await.unwrap();
+        let p = project(&db, "p").await;
+        let t = ticket(&db, p.id, "t").await;
+        move_ticket(&db, t.id, TicketStatus::Ready, None).await.unwrap();
+        claim_next_ready(&db, p.id).await.unwrap().unwrap();
+        assert_eq!(mark_interrupted(&db).await.unwrap(), [t.id]);
+        assert_eq!(get_ticket(&db, t.id).await.unwrap().status, TicketStatus::NeedsInput);
     }
 
     #[tokio::test]

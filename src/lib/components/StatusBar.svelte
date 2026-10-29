@@ -2,15 +2,12 @@
   import { app } from "$lib/app.svelte";
   import { PALETTES, THEMES } from "$lib/theme";
   import Icon from "./Icon.svelte";
-
-  // Filled in by the agent runner in Phase 3.
-  const runningAgents = 0;
 </script>
 
 <footer class="flex h-7 shrink-0 items-center gap-4 border-t border-line bg-surface px-3 text-xs text-muted">
   <span class="flex items-center gap-1.5" title="Active agent sessions">
     <Icon name="bot" size={13} />
-    {runningAgents} running
+    {app.runningCount} running
   </span>
   <span title="Token usage (available once agents run)">Tokens: —</span>
   {#if app.error}

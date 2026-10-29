@@ -9,8 +9,8 @@
   let { status, label }: { status: TicketStatus; label: string } = $props();
 
   const FLIP_MS = 150;
-  // Only the agent moves tickets into or out of these columns.
-  const agentOwned = $derived(status === "in_progress" || status === "needs_input");
+  // Only the agent (or the ticket view, for Done) moves tickets out of these columns.
+  const locked = $derived(status === "in_progress" || status === "needs_input" || status === "done");
 
   const source = $derived(app.columns.get(status) ?? []);
   // Local copy that svelte-dnd-action rearranges while a drag is in progress.
@@ -63,7 +63,7 @@
       items,
       type: "ticket",
       flipDurationMs: FLIP_MS,
-      dragDisabled: agentOwned,
+      dragDisabled: locked,
       dropFromOthersDisabled: !accepts,
       dropTargetStyle: { outline: "2px dashed var(--wz-line)", outlineOffset: "-2px", borderRadius: "12px" },
     }}

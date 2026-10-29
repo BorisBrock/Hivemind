@@ -77,7 +77,8 @@ Planning ──user──▶ Ready ──scheduler──▶ InProgress ──age
 - Kanban board with five columns, drag & drop limited to the transitions the user is allowed to make, tickets in project colours.
 - Ticket view: CodeMirror markdown editor in Planning, read-only transcript afterwards.
 
-### Phase 3 – Claude Code agent integration (MVP core)
+### Phase 3 – Claude Code agent integration (MVP core) ✅
+*Done. Done → Ready is not a drag move any more: it needs a comment (the next prompt) and lives in the ticket view. Real end-to-end tests: `WORKZONE_CLAUDE_MODEL=haiku cargo test e2e -- --ignored --test-threads 1` (after `cargo build`).*
 - `AgentBackend` trait: `start(ticket) / send(input) / answer_permission(id, decision) / cancel() / events() -> Stream<TicketEvent>`.
 - `ClaudeCodeBackend` built on the Phase 0 spike; persist every event as it arrives, stream it to the UI over a Channel.
 - Scheduler + state transitions, activity indicator per project.

@@ -6,6 +6,7 @@
   import Markdown from "./Markdown.svelte";
   import MarkdownEditor from "./MarkdownEditor.svelte";
   import Modal from "./Modal.svelte";
+  import Transcript from "./Transcript.svelte";
 
   let { dialog }: { dialog: TicketDialogState } = $props();
 
@@ -29,7 +30,38 @@
   const statusLabel = $derived(COLUMNS.find((c) => c.status === ticket?.status)?.label);
   const dirty = $derived(!!ticket && (title !== ticket.title || body !== ticket.body));
 
+  const transcript = $derived(ticket ? app.transcripts[ticket.id] : undefined);
+  $effect(() => {
+    const id = ticket?.id;
+    if (id !== undefined) untrack(() => app.loadTranscript(id));
+  });
+
+  /** Reply to a waiting agent, or the comment when sending a Done ticket back. */
+  let message = $state("");
+  let sending = $state(false);
+  const canMessage = $derived(ticket?.status === "needs_input" || ticket?.status === "done");
+
   const close = () => (app.ticketDialog = null);
+
+  async function send(text = message) {
+    if (!ticket || !text.trim()) return;
+    sending = true;
+    const ok =
+      ticket.status === "needs_input"
+        ? await app.replyToTicket(ticket.id, text)
+        : await app.sendBackToReady(ticket.id, text);
+    sending = false;
+    if (ok) message = "";
+  }
+
+  async function cancel() {
+    if (!ticket) return;
+    const confirmed = await ask(
+      `Stop the agent working on "${ticket.title}"? The ticket goes back to Planning; changes the agent already made to files stay.`,
+      { title: "Cancel agent", kind: "warning", okLabel: "Stop agent", cancelLabel: "Keep running" },
+    );
+    if (confirmed) await app.cancelTicket(ticket.id);
+  }
 
   /** Creates or saves the ticket; optionally sends it to Ready afterwards. */
   async function save(sendToReady: boolean) {
@@ -45,7 +77,7 @@
     close();
   }
 
-  async function move(to: "planning" | "ready") {
+  async function move(to: "planning") {
     if (ticket && (await app.moveTicket(ticket.id, to))) close();
   }
 
@@ -97,20 +129,35 @@
         />
       </div>
     {:else if ticket}
-      <section>
-        <h3 class="mb-2 text-xs font-semibold tracking-wider text-muted uppercase">Prompt</h3>
-        <div class="rounded-lg border border-line bg-raised p-4">
-          <Markdown source={ticket.body} />
+      {#if transcript?.length}
+        <div class="min-h-0 flex-1">
+          <Transcript
+            events={transcript}
+            working={ticket.status === "in_progress"}
+            onoption={ticket.status === "needs_input" ? send : undefined}
+          />
         </div>
-      </section>
-      <section class="flex min-h-40 flex-1 flex-col">
-        <h3 class="mb-2 text-xs font-semibold tracking-wider text-muted uppercase">Agent conversation</h3>
-        <div
-          class="flex flex-1 items-center justify-center rounded-lg border border-dashed border-line text-sm text-muted"
-        >
-          The agent's conversation will appear here.
-        </div>
-      </section>
+      {:else}
+        <section class="min-h-0 flex-1 overflow-y-auto">
+          <h3 class="mb-2 text-xs font-semibold tracking-wider text-muted uppercase">Prompt</h3>
+          <div class="rounded-lg border border-line bg-raised p-4">
+            <Markdown source={ticket.body} />
+          </div>
+          {#if ticket.status === "ready"}
+            <p class="mt-3 text-sm text-muted">Waiting for the agent: it starts once the project is free.</p>
+          {/if}
+        </section>
+      {/if}
+
+      {#if canMessage}
+        <textarea
+          class="h-24 w-full shrink-0 resize-none rounded-lg border border-line bg-raised p-3 outline-none focus:border-(--project)"
+          bind:value={message}
+          placeholder={ticket.status === "needs_input"
+            ? "Answer the agent… (Ctrl+Enter to send)"
+            : "Ask for a change; the agent continues in the same session… (Ctrl+Enter to send)"}
+          onkeydown={(e) => e.key === "Enter" && (e.ctrlKey || e.metaKey) && send()}></textarea>
+      {/if}
     {/if}
 
     {#if app.error}
@@ -153,19 +200,30 @@
       </button>
     {:else if ticket?.status === "done"}
       <button
-        class="ml-auto rounded-md border border-line px-3 py-1.5 hover:bg-raised"
-        onclick={() => move("ready")}
+        class="ml-auto rounded-md border border-line px-3 py-1.5 hover:bg-raised disabled:opacity-50"
+        disabled={!message.trim() || sending}
+        title="Write a comment for the agent first"
+        onclick={() => send()}
       >
         Send back to Ready
       </button>
       <button class="rounded-md bg-accent px-4 py-1.5 font-medium text-bg" onclick={() => remove("Close")}>
         Close ticket
       </button>
-    {:else if ticket}
+    {:else if ticket?.status === "needs_input"}
+      <button class="rounded-md px-3 py-1.5 text-danger hover:bg-raised" onclick={cancel}>Cancel agent</button
+      >
       <button
-        class="ml-auto rounded-md border border-line px-3 py-1.5 opacity-50"
-        disabled
-        title="Not available yet"
+        class="ml-auto rounded-md bg-accent px-4 py-1.5 font-medium text-bg disabled:opacity-50"
+        disabled={!message.trim() || sending}
+        onclick={() => send()}
+      >
+        Send reply
+      </button>
+    {:else if ticket?.status === "in_progress"}
+      <button
+        class="ml-auto rounded-md border border-line px-3 py-1.5 text-danger hover:bg-raised"
+        onclick={cancel}
       >
         Cancel agent
       </button>

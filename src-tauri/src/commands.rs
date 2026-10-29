@@ -1,13 +1,17 @@
 //! IPC commands exposed to the frontend. Thin wrappers over `repo`.
 
+use std::sync::Arc;
+
 use sqlx::SqlitePool;
 use tauri::State;
 
+use crate::agent::manager::AgentManager;
 use crate::error::AppResult;
 use crate::models::*;
 use crate::repo;
 
 type Db<'a> = State<'a, SqlitePool>;
+type Agents<'a> = State<'a, Arc<AgentManager>>;
 
 #[tauri::command]
 #[specta::specta]
@@ -59,8 +63,45 @@ pub async fn update_ticket(db: Db<'_>, id: i64, patch: TicketPatch) -> AppResult
 
 #[tauri::command]
 #[specta::specta]
-pub async fn move_ticket(db: Db<'_>, id: i64, to: TicketStatus, before_id: Option<i64>) -> AppResult<Ticket> {
-    repo::move_ticket(&db, id, to, before_id).await
+pub async fn move_ticket(
+    db: Db<'_>,
+    agents: Agents<'_>,
+    id: i64,
+    to: TicketStatus,
+    before_id: Option<i64>,
+) -> AppResult<Ticket> {
+    let ticket = repo::move_ticket(&db, id, to, before_id).await?;
+    if to == TicketStatus::Ready {
+        agents.kick().await?;
+        return repo::get_ticket(&db, id).await; // may already be In Progress
+    }
+    Ok(ticket)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn list_ticket_events(db: Db<'_>, ticket_id: i64) -> AppResult<Vec<TicketEvent>> {
+    repo::list_events(&db, ticket_id).await
+}
+
+/// Answer for an agent waiting in Needs Input.
+#[tauri::command]
+#[specta::specta]
+pub async fn reply_to_ticket(agents: Agents<'_>, id: i64, text: String) -> AppResult<Ticket> {
+    agents.reply(id, &text).await
+}
+
+/// Done → Ready; `comment` becomes the next prompt of the same agent session.
+#[tauri::command]
+#[specta::specta]
+pub async fn send_back_to_ready(agents: Agents<'_>, id: i64, comment: String) -> AppResult<Ticket> {
+    agents.send_back(id, &comment).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn cancel_ticket(agents: Agents<'_>, id: i64) -> AppResult<Ticket> {
+    agents.cancel(id).await
 }
 
 #[tauri::command]

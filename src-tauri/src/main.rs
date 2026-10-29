@@ -2,5 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    workzone_lib::run()
+    if !workzone_lib::run_mcp_server_if_requested() {
+        workzone_lib::run()
+    }
 }

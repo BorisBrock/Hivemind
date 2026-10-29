@@ -1,5 +1,6 @@
 import {
   commands,
+  events,
   type AppError,
   type NewProject,
   type NewTicket,
@@ -13,6 +14,8 @@ import { applyAppearance } from "./theme";
 
 /** Ticket as returned by the backend. */
 export type Ticket = Awaited<ReturnType<typeof commands.listTickets>>[number];
+/** One transcript entry as returned by the backend. */
+export type TicketEvent = Awaited<ReturnType<typeof commands.listTicketEvents>>[number];
 
 export const COLUMNS: { status: TicketStatus; label: string }[] = [
   { status: "planning", label: "Planning" },
@@ -24,12 +27,7 @@ export const COLUMNS: { status: TicketStatus; label: string }[] = [
 
 /** Mirrors `TicketStatus::user_can_move_to` in the backend. */
 export function userCanMove(from: TicketStatus, to: TicketStatus) {
-  return (
-    from === to ||
-    (from === "planning" && to === "ready") ||
-    (from === "ready" && to === "planning") ||
-    (from === "done" && to === "ready")
-  );
+  return from === to || (from === "planning" && to === "ready") || (from === "ready" && to === "planning");
 }
 
 export function errorMessage(e: unknown): string {
@@ -65,7 +63,11 @@ class AppState {
   /** Ticket currently being dragged on the board. */
   dragging = $state<{ id: number; from: TicketStatus } | null>(null);
 
+  /** Transcripts of tickets opened in this session, kept live by backend events. */
+  transcripts = $state<Record<number, TicketEvent[]>>({});
+
   projectsById = $derived(new Map(this.projects.map((p) => [p.id, p])));
+  runningCount = $derived(this.tickets.filter((t) => t.status === "in_progress").length);
 
   /** Tickets of visible projects, grouped by column, in board order. */
   columns = $derived.by(() => {
@@ -77,7 +79,13 @@ class AppState {
     return byStatus;
   });
 
+  private listening = false;
+
   async load() {
+    if (!this.listening) {
+      this.listening = true;
+      await this.run(() => this.listen());
+    }
     await this.run(async () => {
       [this.settings, this.projects, this.tickets] = await Promise.all([
         commands.getSettings(),
@@ -93,6 +101,20 @@ class AppState {
     applyAppearance(next.theme, next.palette);
     this.settings = next;
     await this.run(() => commands.saveSettings(next));
+  }
+
+  /** Agent-driven changes arrive as events from the backend. */
+  private async listen() {
+    await events.ticketChanged.listen(({ payload }) => {
+      const exists = this.tickets.some((t) => t.id === payload.id);
+      this.tickets = exists
+        ? this.tickets.map((t) => (t.id === payload.id ? payload : t))
+        : [...this.tickets, payload];
+    });
+    await events.ticketEventAdded.listen(({ payload }) => {
+      const list = this.transcripts[payload.ticketId];
+      if (list && !list.some((e) => e.id === payload.id)) list.push(payload);
+    });
   }
 
   // ---- projects -------------------------------------------------------------
@@ -149,10 +171,34 @@ class AppState {
     return moved;
   }
 
+  async loadTranscript(ticketId: number) {
+    const list = await this.run(() => commands.listTicketEvents(ticketId));
+    if (list) this.transcripts[ticketId] = list;
+  }
+
+  async replyToTicket(id: number, text: string) {
+    const updated = await this.run(() => commands.replyToTicket(id, text));
+    if (updated) this.replaceTicket(updated);
+    return updated;
+  }
+
+  async sendBackToReady(id: number, comment: string) {
+    const updated = await this.run(() => commands.sendBackToReady(id, comment));
+    if (updated) this.replaceTicket(updated);
+    return updated;
+  }
+
+  async cancelTicket(id: number) {
+    const updated = await this.run(() => commands.cancelTicket(id));
+    if (updated) this.replaceTicket(updated);
+    return updated;
+  }
+
   async deleteTicket(id: number) {
     const ok = await this.run(() => commands.deleteTicket(id));
     if (ok === undefined) return false;
     this.tickets = this.tickets.filter((t) => t.id !== id);
+    delete this.transcripts[id];
     return true;
   }
 
