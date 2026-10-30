@@ -99,12 +99,15 @@
   async function send(text = message) {
     if (!ticket || !text.trim()) return;
     sending = true;
-    const ok =
-      ticket.status === "needs_input"
-        ? await app.replyToTicket(ticket.id, text)
-        : await app.sendBackToReady(ticket.id, text);
+    const sendingBack = ticket.status === "done";
+    const ok = sendingBack
+      ? await app.sendBackToReady(ticket.id, text)
+      : await app.replyToTicket(ticket.id, text);
     sending = false;
-    if (ok) message = "";
+    if (!ok) return;
+    message = "";
+    // A Done ticket sent back to Ready has left the user's hands; get out of the way.
+    if (sendingBack) close();
   }
 
   async function cancel() {
