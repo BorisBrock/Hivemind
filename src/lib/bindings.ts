@@ -7,11 +7,18 @@ import * as __TAURI_EVENT from "@tauri-apps/api/event";
 
 /** Commands */
 export const commands = {
-	listProjects: () => __TAURI_INVOKE<Project[]>("list_projects"),
-	createProject: (project: NewProject_Deserialize) => __TAURI_INVOKE<Project>("create_project", { project }),
-	updateProject: (id: number, patch: ProjectPatch_Deserialize) => __TAURI_INVOKE<Project>("update_project", { id, patch }),
-	reorderProjects: (ids: number[]) => __TAURI_INVOKE<null>("reorder_projects", { ids }),
+	listProjects: () => __TAURI_INVOKE<Project_Serialize[]>("list_projects"),
+	createProject: (project: NewProject_Deserialize) => __TAURI_INVOKE<Project_Serialize>("create_project", { project }),
+	updateProject: (id: number, patch: ProjectPatch_Deserialize) => __TAURI_INVOKE<Project_Serialize>("update_project", { id, patch }),
+	arrangeProjects: (placements: ProjectPlacement_Deserialize[]) => __TAURI_INVOKE<null>("arrange_projects", { placements }),
 	deleteProject: (id: number) => __TAURI_INVOKE<null>("delete_project", { id }),
+	listGroups: () => __TAURI_INVOKE<ProjectGroup[]>("list_groups"),
+	createGroup: (name: string) => __TAURI_INVOKE<ProjectGroup>("create_group", { name }),
+	updateGroup: (id: number, patch: GroupPatch_Deserialize) => __TAURI_INVOKE<ProjectGroup>("update_group", { id, patch }),
+	reorderGroups: (ids: number[]) => __TAURI_INVOKE<null>("reorder_groups", { ids }),
+	/**  Shows or hides all projects of the group; returns the changed projects. */
+	setGroupHidden: (id: number, hidden: boolean) => __TAURI_INVOKE<Project_Serialize[]>("set_group_hidden", { id, hidden }),
+	deleteGroup: (id: number) => __TAURI_INVOKE<null>("delete_group", { id }),
 	listTickets: () => __TAURI_INVOKE<Ticket_Serialize[]>("list_tickets"),
 	createTicket: (ticket: NewTicket_Deserialize) => __TAURI_INVOKE<Ticket_Serialize>("create_ticket", { ticket }),
 	updateTicket: (id: number, patch: TicketPatch_Deserialize) => __TAURI_INVOKE<Ticket_Serialize>("update_ticket", { id, patch }),
@@ -82,6 +89,18 @@ export type EventData_Serialize =
 /**  Notes from Hivemind itself (started, cancelled, interrupted, …). */
 { kind: "system"; message: string };
 
+export type GroupPatch = GroupPatch_Serialize | GroupPatch_Deserialize;
+
+export type GroupPatch_Deserialize = {
+	name?: string | null,
+	collapsed?: boolean | null,
+};
+
+export type GroupPatch_Serialize = {
+	name: string | null,
+	collapsed: boolean | null,
+};
+
 export type NewProject = NewProject_Serialize | NewProject_Deserialize;
 
 export type NewProject_Deserialize = {
@@ -89,6 +108,7 @@ export type NewProject_Deserialize = {
 	path: string,
 	/**  Picks the next unused palette slot when omitted. */
 	colorIndex?: number | null,
+	groupId?: number | null,
 };
 
 export type NewProject_Serialize = {
@@ -96,6 +116,7 @@ export type NewProject_Serialize = {
 	path: string,
 	/**  Picks the next unused palette slot when omitted. */
 	colorIndex: number | null,
+	groupId: number | null,
 };
 
 export type NewTicket = NewTicket_Serialize | NewTicket_Deserialize;
@@ -114,12 +135,13 @@ export type NewTicket_Serialize = {
 	parallel: boolean,
 };
 
-export type Project = {
+export type Project = Project_Serialize | Project_Deserialize;
+
+export type ProjectGroup = {
 	id: number,
 	name: string,
-	path: string,
-	colorIndex: number,
-	hidden: boolean,
+	/**  Collapsed in the sidebar. */
+	collapsed: boolean,
 	sortOrder: number,
 	createdAt: string,
 };
@@ -131,6 +153,8 @@ export type ProjectPatch_Deserialize = {
 	path?: string | null,
 	colorIndex?: number | null,
 	hidden?: boolean | null,
+	/**  `Some(None)` takes the project out of its group. */
+	groupId?: number | null,
 };
 
 export type ProjectPatch_Serialize = {
@@ -138,6 +162,49 @@ export type ProjectPatch_Serialize = {
 	path: string | null,
 	colorIndex: number | null,
 	hidden: boolean | null,
+	/**  `Some(None)` takes the project out of its group. */
+	groupId?: number | null,
+};
+
+/**  Where a project goes when the sidebar is rearranged. */
+export type ProjectPlacement = ProjectPlacement_Serialize | ProjectPlacement_Deserialize;
+
+/**  Where a project goes when the sidebar is rearranged. */
+export type ProjectPlacement_Deserialize = {
+	id: number,
+	groupId?: number | null,
+};
+
+/**  Where a project goes when the sidebar is rearranged. */
+export type ProjectPlacement_Serialize = {
+	id: number,
+	groupId: number | null,
+};
+
+export type Project_Deserialize = {
+	id: number,
+	name: string,
+	path: string,
+	colorIndex: number,
+	hidden: boolean,
+	/**  Position in the sidebar. Ordered across all groups, so it is also the order within one. */
+	sortOrder: number,
+	createdAt: string,
+	/**  `None` for projects that are in no group. */
+	groupId?: number | null,
+};
+
+export type Project_Serialize = {
+	id: number,
+	name: string,
+	path: string,
+	colorIndex: number,
+	hidden: boolean,
+	/**  Position in the sidebar. Ordered across all groups, so it is also the order within one. */
+	sortOrder: number,
+	createdAt: string,
+	/**  `None` for projects that are in no group. */
+	groupId: number | null,
 };
 
 export type Settings = Settings_Serialize | Settings_Deserialize;
@@ -150,20 +217,15 @@ export type Settings_Deserialize = {
 	/**  Paths of the agent executables; empty means "find it on PATH". */
 	claudePath?: string,
 	opencodePath?: string,
-	opencodeModel?: string,
-} & ({
 	/**
 	 *  Models passed to the agents (e.g. `sonnet`, `opencode/big-pickle`); empty means the
 	 *  agent's own default.
 	 */
 	claudeModel?: string,
-} & {
-	/**
-	 *  Models passed to the agents (e.g. `sonnet`, `opencode/big-pickle`); empty means the
-	 *  agent's own default.
-	 */
-	model?: string,
-});
+	opencodeModel?: string,
+	/**  Where projects without a group are listed in the sidebar: `top` or `bottom`. */
+	ungroupedProjects?: string,
+};
 
 export type Settings_Serialize = {
 	theme: string,
@@ -179,6 +241,8 @@ export type Settings_Serialize = {
 	 */
 	claudeModel: string,
 	opencodeModel: string,
+	/**  Where projects without a group are listed in the sidebar: `top` or `bottom`. */
+	ungroupedProjects: string,
 };
 
 export type Ticket = Ticket_Serialize | Ticket_Deserialize;

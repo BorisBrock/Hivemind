@@ -134,6 +134,29 @@
       </div>
     </section>
 
+    <section>
+      <h3 class="mb-2 text-xs font-semibold tracking-wider text-muted uppercase">Projects panel</h3>
+      <div class="flex items-center gap-3 text-sm">
+        <span class="text-muted">Projects without a group:</span>
+        {#each [{ id: "top", label: "Above groups" }, { id: "bottom", label: "Below groups" }] as option (option.id)}
+          <label
+            class="flex items-center gap-2 rounded-lg border-2 bg-raised px-3 py-1.5"
+            class:border-accent={app.settings.ungroupedProjects === option.id}
+            class:border-transparent={app.settings.ungroupedProjects !== option.id}
+          >
+            <input
+              type="radio"
+              name="ungrouped-projects"
+              value={option.id}
+              checked={app.settings.ungroupedProjects === option.id}
+              onchange={() => app.updateSettings({ ungroupedProjects: option.id })}
+            />
+            {option.label}
+          </label>
+        {/each}
+      </div>
+    </section>
+
     <section class="space-y-3">
       <h3 class="text-xs font-semibold tracking-wider text-muted uppercase">Coding agent</h3>
       <div class="flex gap-2">

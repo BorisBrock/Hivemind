@@ -55,10 +55,11 @@ async fn env(name: &str, agent: &str) -> Env {
     let settings = Settings { agent: agent.into(), ..Default::default() };
     repo::save_settings(&db, &settings).await.unwrap();
     let path = project_dir.to_string_lossy().into_owned();
-    let project_id = repo::create_project(&db, NewProject { name: name.into(), path, color_index: None })
-        .await
-        .unwrap()
-        .id;
+    let project_id =
+        repo::create_project(&db, NewProject { name: name.into(), path, color_index: None, group_id: None })
+            .await
+            .unwrap()
+            .id;
     Env { db, agents, project_dir, project_id }
 }
 

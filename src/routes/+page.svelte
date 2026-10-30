@@ -4,6 +4,7 @@
   import { confirmState } from "$lib/confirm.svelte";
   import Board from "$lib/components/Board.svelte";
   import ConfirmDialog from "$lib/components/ConfirmDialog.svelte";
+  import GroupDialog from "$lib/components/GroupDialog.svelte";
   import ProjectDialog from "$lib/components/ProjectDialog.svelte";
   import SettingsDialog from "$lib/components/SettingsDialog.svelte";
   import Sidebar from "$lib/components/Sidebar.svelte";
@@ -48,7 +49,9 @@
     e.preventDefault();
   }
 
-  const dialogOpen = $derived(!!(app.settingsOpen || app.projectDialog || app.ticketDialog));
+  const dialogOpen = $derived(
+    !!(app.settingsOpen || app.projectDialog || app.groupDialog || app.ticketDialog),
+  );
 
   /** Global shortcuts; plain keys only when not typing somewhere. */
   function onkeydown(e: KeyboardEvent) {
@@ -117,6 +120,9 @@
 {/if}
 {#if app.projectDialog}
   <ProjectDialog dialog={app.projectDialog} />
+{/if}
+{#if app.groupDialog}
+  <GroupDialog dialog={app.groupDialog} />
 {/if}
 {#if app.ticketDialog}
   {#key app.ticketDialog}

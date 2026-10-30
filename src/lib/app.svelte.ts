@@ -2,10 +2,13 @@ import {
   commands,
   events,
   type AppError,
+  type GroupPatch,
   type NewProject,
   type NewTicket,
-  type Project,
+  type ProjectGroup,
   type ProjectPatch,
+  type ProjectPlacement,
+  type Project_Serialize as Project,
   type Settings_Serialize as Settings,
   type Usage,
   type TicketPatch,
@@ -13,6 +16,8 @@ import {
 } from "./bindings";
 import { notifyAgentStopped } from "./notify";
 import { applyAppearance } from "./theme";
+
+export type { Project, ProjectGroup };
 
 /** Ticket as returned by the backend. */
 export type Ticket = Awaited<ReturnType<typeof commands.listTickets>>[number];
@@ -50,12 +55,15 @@ export function errorMessage(e: unknown): string {
   return String(e);
 }
 
-export type ProjectDialogState = { mode: "create" } | { mode: "edit"; project: Project };
+export type ProjectDialogState = { mode: "create"; groupId?: number } | { mode: "edit"; project: Project };
+export type GroupDialogState = { mode: "create" } | { mode: "edit"; group: ProjectGroup };
 export type TicketDialogState = { mode: "create"; projectId?: number } | { mode: "view"; ticketId: number };
 
 /** Global app state, loaded from the backend on start-up. */
 class AppState {
   projects = $state<Project[]>([]);
+  /** Project groups in sidebar order. */
+  groups = $state<ProjectGroup[]>([]);
   tickets = $state<Ticket[]>([]);
   settings = $state<Settings>({
     theme: "midnight",
@@ -65,6 +73,7 @@ class AppState {
     opencodePath: "",
     claudeModel: "",
     opencodeModel: "",
+    ungroupedProjects: "top",
   });
   usage = $state<Usage | null>(null);
   /** Checked-out git branch per project id; null for folders that aren't git repositories. */
@@ -75,6 +84,7 @@ class AppState {
   error = $state<string | null>(null);
 
   projectDialog = $state<ProjectDialogState | null>(null);
+  groupDialog = $state<GroupDialogState | null>(null);
   ticketDialog = $state<TicketDialogState | null>(null);
   /** Project of the last ticket created this session; preselected for the next new ticket. */
   lastTicketProjectId: number | undefined = undefined;
@@ -112,9 +122,10 @@ class AppState {
       await this.run(() => this.listen());
     }
     await this.run(async () => {
-      [this.settings, this.projects, this.tickets, this.usage] = await Promise.all([
+      [this.settings, this.projects, this.groups, this.tickets, this.usage] = await Promise.all([
         commands.getSettings(),
         commands.listProjects(),
+        commands.listGroups(),
         commands.listTickets(),
         commands.getUsage(),
       ]);
@@ -197,9 +208,14 @@ class AppState {
     return this.updateProject(project.id, { hidden: !project.hidden });
   }
 
-  async reorderProjects(ordered: Project[]) {
-    this.projects = ordered;
-    const ok = await this.run(() => commands.reorderProjects(ordered.map((p) => p.id)));
+  /** Sets the sidebar order and group of every project, in the order of `placements`. */
+  async arrangeProjects(placements: ProjectPlacement[]) {
+    const byId = this.projectsById;
+    this.projects = placements.flatMap(({ id, groupId }, sortOrder) => {
+      const p = byId.get(id);
+      return p ? [{ ...p, groupId: groupId ?? null, sortOrder }] : [];
+    });
+    const ok = await this.run(() => commands.arrangeProjects(placements));
     if (ok === undefined) await this.load();
   }
 
@@ -208,6 +224,47 @@ class AppState {
     if (ok === undefined) return false;
     this.projects = this.projects.filter((p) => p.id !== id);
     this.tickets = this.tickets.filter((t) => t.projectId !== id);
+    return true;
+  }
+
+  // ---- project groups -------------------------------------------------------
+
+  async createGroup(name: string) {
+    const created = await this.run(() => commands.createGroup(name));
+    if (created) this.groups = [...this.groups, created];
+    return created;
+  }
+
+  async updateGroup(id: number, patch: GroupPatch) {
+    const updated = await this.run(() => commands.updateGroup(id, patch));
+    if (updated) this.groups = this.groups.map((g) => (g.id === id ? updated : g));
+    return updated;
+  }
+
+  toggleGroupCollapsed(group: ProjectGroup) {
+    return this.updateGroup(group.id, { collapsed: !group.collapsed });
+  }
+
+  /** Shows or hides all projects of the group. */
+  async setGroupHidden(group: ProjectGroup, hidden: boolean) {
+    const changed = await this.run(() => commands.setGroupHidden(group.id, hidden));
+    if (!changed) return;
+    const byId = new Map(changed.map((p) => [p.id, p]));
+    this.projects = this.projects.map((p) => byId.get(p.id) ?? p);
+  }
+
+  async reorderGroups(ordered: ProjectGroup[]) {
+    this.groups = ordered;
+    const ok = await this.run(() => commands.reorderGroups(ordered.map((g) => g.id)));
+    if (ok === undefined) await this.load();
+  }
+
+  /** Deletes the group; its projects become ungrouped. */
+  async deleteGroup(id: number) {
+    const ok = await this.run(() => commands.deleteGroup(id));
+    if (ok === undefined) return false;
+    this.groups = this.groups.filter((g) => g.id !== id);
+    this.projects = this.projects.map((p) => (p.groupId === id ? { ...p, groupId: null } : p));
     return true;
   }
 

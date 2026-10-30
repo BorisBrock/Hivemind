@@ -18,6 +18,9 @@
   let name = $state(existing?.name ?? "");
   let path = $state(existing?.path ?? "");
   let colorIndex = $state(existing?.colorIndex ?? firstFree);
+  // A new project created from a group's + button starts in that group.
+  const initialGroup = untrack(() => (dialog.mode === "create" ? dialog.groupId : existing?.groupId));
+  let groupId = $state<number | null>(initialGroup ?? null);
   let saving = $state(false);
 
   const close = () => (app.projectDialog = null);
@@ -38,8 +41,8 @@
     e.preventDefault();
     saving = true;
     const ok = existing
-      ? await app.updateProject(existing.id, { name, path, colorIndex })
-      : await app.createProject({ name, path, colorIndex });
+      ? await app.updateProject(existing.id, { name, path, colorIndex, groupId })
+      : await app.createProject({ name, path, colorIndex, groupId });
     saving = false;
     if (ok) close();
   }
@@ -83,6 +86,21 @@
         required
       />
     </label>
+
+    {#if app.groups.length > 0}
+      <label class="block">
+        <span class="mb-1 block text-xs font-medium text-muted">Group</span>
+        <select
+          class="w-full rounded-md border border-line bg-raised px-3 py-2 outline-none focus:border-accent"
+          bind:value={groupId}
+        >
+          <option value={null}>No group</option>
+          {#each app.groups as group (group.id)}
+            <option value={group.id}>{group.name}</option>
+          {/each}
+        </select>
+      </label>
+    {/if}
 
     <fieldset>
       <legend class="mb-2 text-xs font-medium text-muted">Colour</legend>

@@ -333,10 +333,13 @@ mod tests {
     impl Env {
         async fn project(&self) -> i64 {
             let path = std::env::temp_dir().to_string_lossy().into_owned();
-            repo::create_project(&self.db, NewProject { name: "p".into(), path, color_index: None })
-                .await
-                .unwrap()
-                .id
+            repo::create_project(
+                &self.db,
+                NewProject { name: "p".into(), path, color_index: None, group_id: None },
+            )
+            .await
+            .unwrap()
+            .id
         }
 
         async fn ready(&self, project_id: i64, body: &str) -> i64 {

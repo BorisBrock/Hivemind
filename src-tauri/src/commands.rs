@@ -33,14 +33,51 @@ pub async fn update_project(db: Db<'_>, id: i64, patch: ProjectPatch) -> AppResu
 
 #[tauri::command]
 #[specta::specta]
-pub async fn reorder_projects(db: Db<'_>, ids: Vec<i64>) -> AppResult<()> {
-    repo::reorder_projects(&db, &ids).await
+pub async fn arrange_projects(db: Db<'_>, placements: Vec<ProjectPlacement>) -> AppResult<()> {
+    repo::arrange_projects(&db, &placements).await
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn delete_project(db: Db<'_>, id: i64) -> AppResult<()> {
     repo::delete_project(&db, id).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn list_groups(db: Db<'_>) -> AppResult<Vec<ProjectGroup>> {
+    repo::list_groups(&db).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn create_group(db: Db<'_>, name: String) -> AppResult<ProjectGroup> {
+    repo::create_group(&db, &name).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn update_group(db: Db<'_>, id: i64, patch: GroupPatch) -> AppResult<ProjectGroup> {
+    repo::update_group(&db, id, patch).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn reorder_groups(db: Db<'_>, ids: Vec<i64>) -> AppResult<()> {
+    repo::reorder_groups(&db, &ids).await
+}
+
+/// Shows or hides all projects of the group; returns the changed projects.
+#[tauri::command]
+#[specta::specta]
+pub async fn set_group_hidden(db: Db<'_>, id: i64, hidden: bool) -> AppResult<Vec<Project>> {
+    repo::set_group_hidden(&db, id, hidden).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn delete_group(db: Db<'_>, id: i64) -> AppResult<()> {
+    repo::delete_group(&db, id).await
 }
 
 #[tauri::command]

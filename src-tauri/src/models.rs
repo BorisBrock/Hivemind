@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize, specta::Type, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, specta::Type, sqlx::FromRow)]
 #[serde(rename_all = "camelCase")]
 pub struct Project {
     pub id: i64,
@@ -9,8 +9,11 @@ pub struct Project {
     pub path: String,
     pub color_index: i64,
     pub hidden: bool,
+    /// Position in the sidebar. Ordered across all groups, so it is also the order within one.
     pub sort_order: i64,
     pub created_at: DateTime<Utc>,
+    /// `None` for projects that are in no group.
+    pub group_id: Option<i64>,
 }
 
 #[derive(Debug, Clone, Deserialize, specta::Type)]
@@ -20,6 +23,8 @@ pub struct NewProject {
     pub path: String,
     /// Picks the next unused palette slot when omitted.
     pub color_index: Option<i64>,
+    #[serde(default)]
+    pub group_id: Option<i64>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, specta::Type)]
@@ -29,6 +34,43 @@ pub struct ProjectPatch {
     pub path: Option<String>,
     pub color_index: Option<i64>,
     pub hidden: Option<bool>,
+    /// `Some(None)` takes the project out of its group.
+    #[serde(default, deserialize_with = "double_option")]
+    #[specta(optional, type = Option<i64>)]
+    pub group_id: Option<Option<i64>>,
+}
+
+/// Lets a patch tell "leave unchanged" (missing) from "set to null".
+fn double_option<'de, T: Deserialize<'de>, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<Option<Option<T>>, D::Error> {
+    Option::<T>::deserialize(d).map(Some)
+}
+
+/// Where a project goes when the sidebar is rearranged.
+#[derive(Debug, Clone, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectPlacement {
+    pub id: i64,
+    pub group_id: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, specta::Type, sqlx::FromRow)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectGroup {
+    pub id: i64,
+    pub name: String,
+    /// Collapsed in the sidebar.
+    pub collapsed: bool,
+    pub sort_order: i64,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct GroupPatch {
+    pub name: Option<String>,
+    pub collapsed: Option<bool>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type, sqlx::Type)]
@@ -167,6 +209,8 @@ pub struct Settings {
     /// agent's own default.
     pub claude_model: String,
     pub opencode_model: String,
+    /// Where projects without a group are listed in the sidebar: `top` or `bottom`.
+    pub ungrouped_projects: String,
 }
 
 impl Default for Settings {
@@ -179,6 +223,7 @@ impl Default for Settings {
             opencode_path: String::new(),
             claude_model: String::new(),
             opencode_model: String::new(),
+            ungrouped_projects: "top".into(),
         }
     }
 }

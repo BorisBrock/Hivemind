@@ -26,13 +26,17 @@ pub async fn create_project(db: &SqlitePool, new: NewProject) -> AppResult<Proje
         Some(c) => check_color(c)?,
         None => next_free_color(db).await?,
     };
+    if let Some(g) = new.group_id {
+        get_group(db, g).await?;
+    }
     let id = sqlx::query(
-        "INSERT INTO projects (name, path, color_index, sort_order, created_at)
-         VALUES (?, ?, ?, (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM projects), ?)",
+        "INSERT INTO projects (name, path, color_index, group_id, sort_order, created_at)
+         VALUES (?, ?, ?, ?, (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM projects), ?)",
     )
     .bind(name)
     .bind(path)
     .bind(color_index)
+    .bind(new.group_id)
     .bind(Utc::now())
     .execute(db)
     .await?
@@ -54,24 +58,34 @@ pub async fn update_project(db: &SqlitePool, id: i64, patch: ProjectPatch) -> Ap
     if let Some(hidden) = patch.hidden {
         p.hidden = hidden;
     }
-    sqlx::query("UPDATE projects SET name = ?, path = ?, color_index = ?, hidden = ? WHERE id = ?")
-        .bind(&p.name)
-        .bind(&p.path)
-        .bind(p.color_index)
-        .bind(p.hidden)
-        .bind(id)
-        .execute(db)
-        .await?;
+    if let Some(group_id) = patch.group_id {
+        if let Some(g) = group_id {
+            get_group(db, g).await?;
+        }
+        p.group_id = group_id;
+    }
+    sqlx::query(
+        "UPDATE projects SET name = ?, path = ?, color_index = ?, hidden = ?, group_id = ? WHERE id = ?",
+    )
+    .bind(&p.name)
+    .bind(&p.path)
+    .bind(p.color_index)
+    .bind(p.hidden)
+    .bind(p.group_id)
+    .bind(id)
+    .execute(db)
+    .await?;
     Ok(p)
 }
 
-/// Sets the sidebar order to the order of `ids`.
-pub async fn reorder_projects(db: &SqlitePool, ids: &[i64]) -> AppResult<()> {
+/// Sets the sidebar order to the order of `placements` and moves projects between groups.
+pub async fn arrange_projects(db: &SqlitePool, placements: &[ProjectPlacement]) -> AppResult<()> {
     let mut tx = db.begin().await?;
-    for (order, id) in ids.iter().enumerate() {
-        sqlx::query("UPDATE projects SET sort_order = ? WHERE id = ?")
+    for (order, p) in placements.iter().enumerate() {
+        sqlx::query("UPDATE projects SET sort_order = ?, group_id = ? WHERE id = ?")
             .bind(order as i64)
-            .bind(id)
+            .bind(p.group_id)
+            .bind(p.id)
             .execute(&mut *tx)
             .await?;
     }
@@ -91,6 +105,81 @@ pub async fn delete_project(db: &SqlitePool, id: i64) -> AppResult<()> {
         return Err(invalid("cancel the running agent before deleting this project"));
     }
     let n = sqlx::query("DELETE FROM projects WHERE id = ?").bind(id).execute(db).await?;
+    if n.rows_affected() == 0 {
+        return Err(AppError::NotFound);
+    }
+    Ok(())
+}
+
+// ---- project groups ---------------------------------------------------------
+
+pub async fn list_groups(db: &SqlitePool) -> AppResult<Vec<ProjectGroup>> {
+    Ok(sqlx::query_as("SELECT * FROM project_groups ORDER BY sort_order, id").fetch_all(db).await?)
+}
+
+pub async fn get_group(db: &SqlitePool, id: i64) -> AppResult<ProjectGroup> {
+    Ok(sqlx::query_as("SELECT * FROM project_groups WHERE id = ?").bind(id).fetch_one(db).await?)
+}
+
+/// New groups go to the end of the list.
+pub async fn create_group(db: &SqlitePool, name: &str) -> AppResult<ProjectGroup> {
+    let name = non_empty(name, "name")?;
+    let id = sqlx::query(
+        "INSERT INTO project_groups (name, sort_order, created_at)
+         VALUES (?, (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM project_groups), ?)",
+    )
+    .bind(name)
+    .bind(Utc::now())
+    .execute(db)
+    .await?
+    .last_insert_rowid();
+    get_group(db, id).await
+}
+
+pub async fn update_group(db: &SqlitePool, id: i64, patch: GroupPatch) -> AppResult<ProjectGroup> {
+    let mut g = get_group(db, id).await?;
+    if let Some(name) = patch.name {
+        g.name = non_empty(&name, "name")?.into();
+    }
+    if let Some(collapsed) = patch.collapsed {
+        g.collapsed = collapsed;
+    }
+    sqlx::query("UPDATE project_groups SET name = ?, collapsed = ? WHERE id = ?")
+        .bind(&g.name)
+        .bind(g.collapsed)
+        .bind(id)
+        .execute(db)
+        .await?;
+    Ok(g)
+}
+
+/// Sets the order of the groups to the order of `ids`.
+pub async fn reorder_groups(db: &SqlitePool, ids: &[i64]) -> AppResult<()> {
+    let mut tx = db.begin().await?;
+    for (order, id) in ids.iter().enumerate() {
+        sqlx::query("UPDATE project_groups SET sort_order = ? WHERE id = ?")
+            .bind(order as i64)
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+    }
+    tx.commit().await?;
+    Ok(())
+}
+
+/// Shows or hides all projects of a group; returns them.
+pub async fn set_group_hidden(db: &SqlitePool, id: i64, hidden: bool) -> AppResult<Vec<Project>> {
+    get_group(db, id).await?;
+    Ok(sqlx::query_as("UPDATE projects SET hidden = ? WHERE group_id = ? RETURNING *")
+        .bind(hidden)
+        .bind(id)
+        .fetch_all(db)
+        .await?)
+}
+
+/// Deletes the group; its projects stay and become ungrouped.
+pub async fn delete_group(db: &SqlitePool, id: i64) -> AppResult<()> {
+    let n = sqlx::query("DELETE FROM project_groups WHERE id = ?").bind(id).execute(db).await?;
     if n.rows_affected() == 0 {
         return Err(AppError::NotFound);
     }
@@ -499,7 +588,9 @@ mod tests {
 
     async fn project(db: &SqlitePool, name: &str) -> Project {
         let path = std::env::temp_dir().to_string_lossy().into_owned();
-        create_project(db, NewProject { name: name.into(), path, color_index: None }).await.unwrap()
+        create_project(db, NewProject { name: name.into(), path, color_index: None, group_id: None })
+            .await
+            .unwrap()
     }
 
     async fn ticket(db: &SqlitePool, project_id: i64, title: &str) -> Ticket {
@@ -527,14 +618,49 @@ mod tests {
     #[tokio::test]
     async fn projects_need_an_existing_folder_and_can_be_reordered() {
         let db = db::open_in_memory().await.unwrap();
-        let missing = NewProject { name: "x".into(), path: "/does/not/exist".into(), color_index: None };
+        let missing = NewProject {
+            name: "x".into(),
+            path: "/does/not/exist".into(),
+            color_index: None,
+            group_id: None,
+        };
         assert!(matches!(create_project(&db, missing).await, Err(AppError::Invalid { .. })));
 
         let a = project(&db, "a").await;
         let b = project(&db, "b").await;
-        reorder_projects(&db, &[b.id, a.id]).await.unwrap();
+        let place = |id| ProjectPlacement { id, group_id: None };
+        arrange_projects(&db, &[place(b.id), place(a.id)]).await.unwrap();
         let names: Vec<String> = list_projects(&db).await.unwrap().into_iter().map(|p| p.name).collect();
         assert_eq!(names, ["b", "a"]);
+    }
+
+    #[tokio::test]
+    async fn groups_hold_projects_and_survive_without_them() {
+        let db = db::open_in_memory().await.unwrap();
+        let g1 = create_group(&db, "Work").await.unwrap();
+        let g2 = create_group(&db, "Home").await.unwrap();
+        assert!(create_group(&db, " ").await.is_err(), "name required");
+        reorder_groups(&db, &[g2.id, g1.id]).await.unwrap();
+        let names: Vec<String> = list_groups(&db).await.unwrap().into_iter().map(|g| g.name).collect();
+        assert_eq!(names, ["Home", "Work"]);
+
+        let a = project(&db, "a").await;
+        let b = project(&db, "b").await;
+        let place = |id| ProjectPlacement { id, group_id: Some(g1.id) };
+        arrange_projects(&db, &[place(b.id), place(a.id)]).await.unwrap();
+        let hidden = set_group_hidden(&db, g1.id, true).await.unwrap();
+        assert_eq!(hidden.len(), 2);
+        assert!(hidden.iter().all(|p| p.hidden && p.group_id == Some(g1.id)));
+
+        let out = ProjectPatch { group_id: Some(None), ..Default::default() };
+        assert_eq!(update_project(&db, a.id, out).await.unwrap().group_id, None);
+        let bad = ProjectPatch { group_id: Some(Some(999)), ..Default::default() };
+        assert!(update_project(&db, a.id, bad).await.is_err(), "unknown group");
+
+        let collapsed = GroupPatch { collapsed: Some(true), ..Default::default() };
+        assert!(update_group(&db, g1.id, collapsed).await.unwrap().collapsed);
+        delete_group(&db, g1.id).await.unwrap();
+        assert_eq!(get_project(&db, b.id).await.unwrap().group_id, None, "project is kept, ungrouped");
     }
 
     #[tokio::test]
