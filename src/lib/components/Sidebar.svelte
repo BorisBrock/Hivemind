@@ -70,10 +70,14 @@
         <div class="flex items-start gap-2" class:opacity-50={project.hidden}>
           <div class="min-w-0 flex-1">
             <div class="truncate text-base font-semibold">{project.name}</div>
-            <div class="mt-0.5 flex items-center gap-1.5 text-muted [&>svg]:shrink-0">
+            <button
+              class="mt-0.5 flex max-w-full cursor-pointer items-center gap-1.5 text-left text-muted hover:text-fg hover:underline [&>svg]:shrink-0"
+              title="Open {project.path}"
+              onclick={() => app.openFolder(project.path)}
+            >
               <Icon name="folder" size={12} />
               <PathText path={project.path} class="font-mono text-xs" />
-            </div>
+            </button>
             {#if app.branches[project.id]}
               <div
                 class="mt-0.5 flex items-center gap-1.5 text-muted [&>svg]:shrink-0"

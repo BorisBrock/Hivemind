@@ -142,3 +142,26 @@ pub async fn save_settings(db: Db<'_>, settings: Settings) -> AppResult<()> {
 pub fn git_branch(path: String) -> Option<String> {
     crate::git::current_branch(std::path::Path::new(&path))
 }
+
+/// Opens `path` in the system file manager (Explorer, Finder, or whatever `xdg-open` picks).
+#[tauri::command]
+#[specta::specta]
+pub fn open_folder(path: String) -> AppResult<()> {
+    let dir = std::path::Path::new(&path);
+    if !dir.is_dir() {
+        return Err(crate::error::invalid(format!("Folder not found: {path}")));
+    }
+    let program = if cfg!(windows) {
+        "explorer"
+    } else if cfg!(target_os = "macos") {
+        "open"
+    } else {
+        "xdg-open"
+    };
+    // Not waited for: Explorer reports exit code 1 even on success.
+    std::process::Command::new(program)
+        .arg(dir)
+        .spawn()
+        .map_err(|e| crate::error::invalid(format!("Could not open the folder: {e}")))?;
+    Ok(())
+}

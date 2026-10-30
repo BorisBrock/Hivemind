@@ -30,6 +30,8 @@ export const commands = {
 	saveSettings: (settings: Settings_Deserialize) => __TAURI_INVOKE<null>("save_settings", { settings }),
 	/**  Checked-out git branch of `path`, or `None` if it isn't in a git repository. */
 	gitBranch: (path: string) => __TAURI_INVOKE<string | null>("git_branch", { path }),
+	/**  Opens `path` in the system file manager (Explorer, Finder, or whatever `xdg-open` picks). */
+	openFolder: (path: string) => __TAURI_INVOKE<null>("open_folder", { path }),
 };
 
 /** Events */

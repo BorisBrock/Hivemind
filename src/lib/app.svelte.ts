@@ -182,6 +182,10 @@ class AppState {
     return updated;
   }
 
+  openFolder(path: string) {
+    return this.run(() => commands.openFolder(path));
+  }
+
   toggleProjectHidden(project: Project) {
     return this.updateProject(project.id, { hidden: !project.hidden });
   }
