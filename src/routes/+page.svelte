@@ -12,6 +12,42 @@
 
   onMount(() => app.load());
 
+  // Sidebar width is a per-machine layout preference, so it lives in localStorage.
+  const SIDEBAR_KEY = "sidebarWidth";
+  const SIDEBAR_DEFAULT = 288;
+  const SIDEBAR_MIN = 200;
+  const SIDEBAR_MAX = 640;
+  const clampWidth = (w: number) => Math.round(Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, w)));
+
+  let sidebarWidth = $state(clampWidth(Number(localStorage.getItem(SIDEBAR_KEY)) || SIDEBAR_DEFAULT));
+  let resizing = $state(false);
+
+  function setSidebarWidth(w: number) {
+    sidebarWidth = clampWidth(w);
+    localStorage.setItem(SIDEBAR_KEY, String(sidebarWidth));
+  }
+
+  function onSplitterDown(e: PointerEvent) {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    resizing = true;
+  }
+
+  function onSplitterMove(e: PointerEvent) {
+    if (resizing) setSidebarWidth(e.clientX);
+  }
+
+  function onSplitterKey(e: KeyboardEvent) {
+    const step = e.shiftKey ? 64 : 16;
+    if (e.key === "ArrowLeft") setSidebarWidth(sidebarWidth - step);
+    else if (e.key === "ArrowRight") setSidebarWidth(sidebarWidth + step);
+    else if (e.key === "Home") setSidebarWidth(SIDEBAR_MIN);
+    else if (e.key === "End") setSidebarWidth(SIDEBAR_MAX);
+    else return;
+    e.preventDefault();
+  }
+
   const dialogOpen = $derived(!!(app.settingsOpen || app.projectDialog || app.ticketDialog));
 
   /** Global shortcuts; plain keys only when not typing somewhere. */
@@ -43,9 +79,34 @@
 
 <svelte:window {onkeydown} />
 
-<div class="flex h-screen flex-col">
+<div class="flex h-screen flex-col" class:select-none={resizing} class:cursor-col-resize={resizing}>
   <div class="flex min-h-0 flex-1">
-    <Sidebar />
+    <Sidebar width={sidebarWidth} />
+    <!-- A focusable separator with a value is an interactive widget per WAI-ARIA. -->
+    <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize projects panel"
+      aria-valuenow={sidebarWidth}
+      aria-valuemin={SIDEBAR_MIN}
+      aria-valuemax={SIDEBAR_MAX}
+      tabindex="0"
+      title="Drag to resize, double-click to reset"
+      class="group relative w-px shrink-0 cursor-col-resize bg-line outline-none"
+      onpointerdown={onSplitterDown}
+      onpointermove={onSplitterMove}
+      onpointerup={() => (resizing = false)}
+      onpointercancel={() => (resizing = false)}
+      ondblclick={() => setSidebarWidth(SIDEBAR_DEFAULT)}
+      onkeydown={onSplitterKey}
+    >
+      <!-- Wider invisible hit area; highlights while hovered, focused or dragging. -->
+      <div
+        class="absolute inset-y-0 -left-1 -right-1 z-10 transition-colors group-hover:bg-accent/40 group-focus-visible:bg-accent/60"
+        class:bg-accent={resizing}
+      ></div>
+    </div>
     <Board />
   </div>
   <StatusBar />

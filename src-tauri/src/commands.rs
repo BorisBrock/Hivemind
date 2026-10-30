@@ -165,3 +165,39 @@ pub fn open_folder(path: String) -> AppResult<()> {
         .map_err(|e| crate::error::invalid(format!("Could not open the folder: {e}")))?;
     Ok(())
 }
+
+/// GitHub Desktop's launcher, if it is installed. Only Windows for now: the launcher
+/// lives at a fixed path there and forwards arguments to the running instance.
+fn github_desktop_exe() -> Option<std::path::PathBuf> {
+    if !cfg!(windows) {
+        return None;
+    }
+    let exe =
+        std::path::PathBuf::from(std::env::var_os("LOCALAPPDATA")?).join("GitHubDesktop/GitHubDesktop.exe");
+    exe.exists().then_some(exe)
+}
+
+/// Whether GitHub Desktop is installed, so repositories can be opened in it.
+#[tauri::command]
+#[specta::specta]
+pub fn has_github_desktop() -> bool {
+    github_desktop_exe().is_some()
+}
+
+/// Opens the repository containing `path` in GitHub Desktop, the way its `github open`
+/// CLI does. (Its `x-github-client://openLocalRepo` URL is no longer supported.)
+/// Desktop offers to add the repository if it doesn't know it yet.
+#[tauri::command]
+#[specta::specta]
+pub fn open_in_github_desktop(path: String) -> AppResult<()> {
+    let exe = github_desktop_exe().ok_or_else(|| crate::error::invalid("GitHub Desktop is not installed"))?;
+    let root = crate::git::repo_root(std::path::Path::new(&path))
+        .ok_or_else(|| crate::error::invalid(format!("Not a git repository: {path}")))?;
+    let mut arg = std::ffi::OsString::from("--cli-open=");
+    arg.push(root);
+    std::process::Command::new(exe)
+        .arg(arg)
+        .spawn()
+        .map_err(|e| crate::error::invalid(format!("Could not open GitHub Desktop: {e}")))?;
+    Ok(())
+}

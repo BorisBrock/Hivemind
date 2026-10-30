@@ -7,6 +7,8 @@
   import Icon from "./Icon.svelte";
   import PathText from "./PathText.svelte";
 
+  let { width }: { width: number } = $props();
+
   const FLIP_MS = 150;
 
   // Local copy that svelte-dnd-action rearranges while dragging.
@@ -29,7 +31,7 @@
   }
 </script>
 
-<aside class="flex w-72 shrink-0 flex-col border-r border-line bg-surface">
+<aside class="flex shrink-0 flex-col bg-surface" style:width="{width}px">
   <header class="flex h-12 items-center justify-between px-4">
     <h2 class="text-xs font-semibold tracking-wider text-muted uppercase">Projects</h2>
     <button
@@ -79,13 +81,24 @@
               <PathText path={project.path} class="font-mono text-xs" />
             </button>
             {#if app.branches[project.id]}
-              <div
-                class="mt-0.5 flex items-center gap-1.5 text-muted [&>svg]:shrink-0"
-                title={app.branches[project.id]}
-              >
-                <Icon name="git-branch" size={12} />
-                <span class="min-w-0 truncate font-mono text-xs">{app.branches[project.id]}</span>
-              </div>
+              {#if app.hasGithubDesktop}
+                <button
+                  class="mt-0.5 flex max-w-full cursor-pointer items-center gap-1.5 text-left text-muted hover:text-fg hover:underline [&>svg]:shrink-0"
+                  title="{app.branches[project.id]} – open in GitHub Desktop"
+                  onclick={() => app.openInGithubDesktop(project.path)}
+                >
+                  <Icon name="git-branch" size={12} />
+                  <span class="min-w-0 truncate font-mono text-xs">{app.branches[project.id]}</span>
+                </button>
+              {:else}
+                <div
+                  class="mt-0.5 flex items-center gap-1.5 text-muted [&>svg]:shrink-0"
+                  title={app.branches[project.id]}
+                >
+                  <Icon name="git-branch" size={12} />
+                  <span class="min-w-0 truncate font-mono text-xs">{app.branches[project.id]}</span>
+                </div>
+              {/if}
             {/if}
           </div>
           <span

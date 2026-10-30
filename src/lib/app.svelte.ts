@@ -69,6 +69,8 @@ class AppState {
   usage = $state<Usage | null>(null);
   /** Checked-out git branch per project id; null for folders that aren't git repositories. */
   branches = $state<Record<number, string | null>>({});
+  /** Whether branches can be clicked to open the repository in GitHub Desktop. */
+  hasGithubDesktop = $state(false);
   settingsOpen = $state(false);
   error = $state<string | null>(null);
 
@@ -119,6 +121,7 @@ class AppState {
       applyAppearance(this.settings.theme, this.settings.palette);
     });
     await this.refreshBranches();
+    this.hasGithubDesktop = await commands.hasGithubDesktop().catch(() => false);
   }
 
   /** Re-reads the git branches; they change outside the app, e.g. by agents or the user. */
@@ -184,6 +187,10 @@ class AppState {
 
   openFolder(path: string) {
     return this.run(() => commands.openFolder(path));
+  }
+
+  openInGithubDesktop(path: string) {
+    return this.run(() => commands.openInGithubDesktop(path));
   }
 
   toggleProjectHidden(project: Project) {

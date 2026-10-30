@@ -19,6 +19,11 @@ pub fn current_branch(dir: &Path) -> Option<String> {
     }
 }
 
+/// Top-level folder of the repository containing `dir` (the one holding `.git`).
+pub fn repo_root(dir: &Path) -> Option<&Path> {
+    dir.ancestors().find(|d| d.join(".git").exists())
+}
+
 /// Finds the git directory for `dir` or its nearest ancestor. Handles worktrees and
 /// submodules, where `.git` is a file containing `gitdir: <path>`.
 fn git_dir(dir: &Path) -> Option<PathBuf> {

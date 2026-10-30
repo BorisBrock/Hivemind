@@ -42,6 +42,8 @@ fn specta_builder() -> Builder<tauri::Wry> {
             commands::save_settings,
             commands::git_branch,
             commands::open_folder,
+            commands::has_github_desktop,
+            commands::open_in_github_desktop,
         ])
         .events(collect_events![events::TicketChanged, events::TicketEventAdded, events::UsageChanged])
         .constant("PALETTE_SIZE", repo::PALETTE_SIZE)

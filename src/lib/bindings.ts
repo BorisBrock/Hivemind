@@ -32,6 +32,14 @@ export const commands = {
 	gitBranch: (path: string) => __TAURI_INVOKE<string | null>("git_branch", { path }),
 	/**  Opens `path` in the system file manager (Explorer, Finder, or whatever `xdg-open` picks). */
 	openFolder: (path: string) => __TAURI_INVOKE<null>("open_folder", { path }),
+	/**  Whether GitHub Desktop is installed, so repositories can be opened in it. */
+	hasGithubDesktop: () => __TAURI_INVOKE<boolean>("has_github_desktop"),
+	/**
+	 *  Opens the repository containing `path` in GitHub Desktop, the way its `github open`
+	 *  CLI does. (Its `x-github-client://openLocalRepo` URL is no longer supported.)
+	 *  Desktop offers to add the repository if it doesn't know it yet.
+	 */
+	openInGithubDesktop: (path: string) => __TAURI_INVOKE<null>("open_in_github_desktop", { path }),
 };
 
 /** Events */
