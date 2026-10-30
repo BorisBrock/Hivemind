@@ -70,7 +70,19 @@
         <div class="flex items-start gap-2" class:opacity-50={project.hidden}>
           <div class="min-w-0 flex-1">
             <div class="truncate text-base font-semibold">{project.name}</div>
-            <PathText path={project.path} class="font-mono text-xs text-muted" />
+            <div class="mt-0.5 flex items-center gap-1.5 text-muted [&>svg]:shrink-0">
+              <Icon name="folder" size={12} />
+              <PathText path={project.path} class="font-mono text-xs" />
+            </div>
+            {#if app.branches[project.id]}
+              <div
+                class="mt-0.5 flex items-center gap-1.5 text-muted [&>svg]:shrink-0"
+                title={app.branches[project.id]}
+              >
+                <Icon name="git-branch" size={12} />
+                <span class="min-w-0 truncate font-mono text-xs">{app.branches[project.id]}</span>
+              </div>
+            {/if}
           </div>
           <span
             class="mt-1.5 size-2 shrink-0 rounded-full"

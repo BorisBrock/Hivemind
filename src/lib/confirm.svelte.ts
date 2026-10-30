@@ -1,7 +1,12 @@
 /** Themed replacement for the native `ask()` message box. */
 
+/** Picks the icon and its colour. */
+export type ConfirmKind = "question" | "info" | "warning" | "error";
+
 export interface ConfirmOptions {
   title: string;
+  /** Defaults to "warning" for `danger` dialogs, otherwise "question". */
+  kind?: ConfirmKind;
   message: string;
   okLabel?: string;
   cancelLabel?: string;

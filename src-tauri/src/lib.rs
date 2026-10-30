@@ -3,6 +3,7 @@ mod commands;
 mod db;
 mod error;
 mod events;
+mod git;
 mod models;
 mod repo;
 
@@ -38,6 +39,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
             commands::check_agent,
             commands::get_settings,
             commands::save_settings,
+            commands::git_branch,
         ])
         .events(collect_events![events::TicketChanged, events::TicketEventAdded, events::UsageChanged])
         .constant("PALETTE_SIZE", repo::PALETTE_SIZE)

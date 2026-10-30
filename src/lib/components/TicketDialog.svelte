@@ -22,10 +22,35 @@
     ticket: dialog.mode === "view" ? app.tickets.find((t) => t.id === dialog.ticketId) : undefined,
     projectId: dialog.mode === "create" ? dialog.projectId : undefined,
   }));
-  let projectId = $state(initial.ticket?.projectId ?? initial.projectId ?? visibleProjects[0]?.id);
+  const lastProjectId = visibleProjects.some((p) => p.id === app.lastTicketProjectId)
+    ? app.lastTicketProjectId
+    : undefined;
+  let projectId = $state(
+    initial.ticket?.projectId ?? initial.projectId ?? lastProjectId ?? visibleProjects[0]?.id,
+  );
   let title = $state(initial.ticket?.title ?? "");
   let body = $state(initial.ticket?.body ?? "");
   let parallel = $state(initial.ticket?.parallel ?? false);
+
+  /** Title used when the title field is left empty: the body's first line, minus Markdown. */
+  const fallbackTitle = $derived.by(() => {
+    const line = body
+      .split("\n")
+      .map((l) =>
+        l
+          .replace(/^\s*(#{1,6}\s+|>\s*|[-*+]\s+(\[[ xX]\]\s+)?|\d+[.)]\s+)*/, "")
+          .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
+          .replace(/[*_`~]/g, "")
+          .replace(/\s+/g, " ")
+          .trim(),
+      )
+      .find((l) => l);
+    if (!line || line.length <= 60) return line ?? "";
+    const cut = line.slice(0, 60);
+    const space = cut.lastIndexOf(" ");
+    return `${space > 30 ? cut.slice(0, space) : cut}…`;
+  });
+  const effectiveTitle = $derived(title.trim() || fallbackTitle);
 
   const editable = $derived(dialog.mode === "create" || ticket?.status === "planning");
   const project = $derived(projectId !== undefined ? app.projectsById.get(projectId) : undefined);
@@ -89,6 +114,7 @@
       message: `Stop the agent working on "${ticket.title}"? The ticket goes back to Planning; changes the agent already made to files stay.`,
       okLabel: "Stop agent",
       cancelLabel: "Keep running",
+      kind: "question",
       danger: true,
     });
     if (confirmed) await app.cancelTicket(ticket.id);
@@ -99,9 +125,10 @@
     let saved;
     if (dialog.mode === "create") {
       if (projectId === undefined) return;
-      saved = await app.createTicket({ projectId, title, body, parallel });
+      saved = await app.createTicket({ projectId, title: effectiveTitle, body, parallel });
+      if (saved) app.lastTicketProjectId = projectId;
     } else if (ticket) {
-      saved = dirty ? await app.updateTicket(ticket.id, { title, body, parallel }) : ticket;
+      saved = dirty ? await app.updateTicket(ticket.id, { title: effectiveTitle, body, parallel }) : ticket;
     }
     if (!saved) return;
     if (sendToReady && !(await app.moveTicket(saved.id, "ready"))) return;
@@ -200,8 +227,9 @@
       <input
         class="w-full border-b border-line bg-transparent pb-2 text-xl font-semibold outline-none focus:border-(--project)"
         bind:value={title}
-        placeholder="Ticket title"
+        placeholder={fallbackTitle || "Ticket title"}
         aria-label="Title"
+        data-autofocus={dialog.mode === "create" || undefined}
         spellcheck={false}
       />
       <div

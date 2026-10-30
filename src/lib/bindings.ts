@@ -28,6 +28,8 @@ export const commands = {
 	checkAgent: (agent: string, path: string) => __TAURI_INVOKE<string>("check_agent", { agent, path }),
 	getSettings: () => __TAURI_INVOKE<Settings_Serialize>("get_settings"),
 	saveSettings: (settings: Settings_Deserialize) => __TAURI_INVOKE<null>("save_settings", { settings }),
+	/**  Checked-out git branch of `path`, or `None` if it isn't in a git repository. */
+	gitBranch: (path: string) => __TAURI_INVOKE<string | null>("git_branch", { path }),
 };
 
 /** Events */

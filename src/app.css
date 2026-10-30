@@ -15,6 +15,8 @@
   --color-muted: var(--wz-muted);
   --color-accent: var(--wz-accent);
   --color-danger: var(--wz-danger);
+  /* Themes may set --wz-warning; amber reads well on light and dark backgrounds. */
+  --color-warning: var(--wz-warning, #f59f00);
   --font-sans: "Inter", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
   --font-mono: "JetBrains Mono", "Cascadia Code", ui-monospace, monospace;
 }

@@ -135,3 +135,10 @@ pub async fn get_settings(db: Db<'_>) -> AppResult<Settings> {
 pub async fn save_settings(db: Db<'_>, settings: Settings) -> AppResult<()> {
     repo::save_settings(&db, &settings).await
 }
+
+/// Checked-out git branch of `path`, or `None` if it isn't in a git repository.
+#[tauri::command]
+#[specta::specta]
+pub fn git_branch(path: String) -> Option<String> {
+    crate::git::current_branch(std::path::Path::new(&path))
+}

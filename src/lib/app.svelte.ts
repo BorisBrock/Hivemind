@@ -67,11 +67,15 @@ class AppState {
     opencodeModel: "",
   });
   usage = $state<Usage | null>(null);
+  /** Checked-out git branch per project id; null for folders that aren't git repositories. */
+  branches = $state<Record<number, string | null>>({});
   settingsOpen = $state(false);
   error = $state<string | null>(null);
 
   projectDialog = $state<ProjectDialogState | null>(null);
   ticketDialog = $state<TicketDialogState | null>(null);
+  /** Project of the last ticket created this session; preselected for the next new ticket. */
+  lastTicketProjectId: number | undefined = undefined;
   /** Ticket currently being dragged on the board. */
   dragging = $state<{ id: number; from: TicketStatus } | null>(null);
 
@@ -114,6 +118,13 @@ class AppState {
       ]);
       applyAppearance(this.settings.theme, this.settings.palette);
     });
+    await this.refreshBranches();
+  }
+
+  /** Re-reads the git branches; they change outside the app, e.g. by agents or the user. */
+  async refreshBranches(projects: Project[] = this.projects) {
+    const found = await Promise.all(projects.map((p) => commands.gitBranch(p.path).catch(() => null)));
+    projects.forEach((p, i) => (this.branches[p.id] = found[i]));
   }
 
   async updateSettings(patch: Partial<Settings>) {
@@ -134,6 +145,10 @@ class AppState {
         const project = this.projectsById.get(payload.projectId)?.name ?? "";
         notifyAgentStopped(payload, project).catch(() => {}); // notifications are best effort
       }
+      if (before?.status === "in_progress" && payload.status !== "in_progress") {
+        const project = this.projectsById.get(payload.projectId);
+        if (project) this.refreshBranches([project]); // the agent may have switched branches
+      }
       const exists = this.tickets.some((t) => t.id === payload.id);
       this.tickets = exists
         ? this.tickets.map((t) => (t.id === payload.id ? payload : t))
@@ -144,19 +159,26 @@ class AppState {
       if (list && !list.some((e) => e.id === payload.id)) list.push(payload);
     });
     await events.usageChanged.listen(({ payload }) => (this.usage = payload));
+    window.addEventListener("focus", () => this.refreshBranches());
   }
 
   // ---- projects -------------------------------------------------------------
 
   async createProject(project: NewProject) {
     const created = await this.run(() => commands.createProject(project));
-    if (created) this.projects = [...this.projects, created];
+    if (created) {
+      this.projects = [...this.projects, created];
+      await this.refreshBranches([created]);
+    }
     return created;
   }
 
   async updateProject(id: number, patch: ProjectPatch) {
     const updated = await this.run(() => commands.updateProject(id, patch));
-    if (updated) this.projects = this.projects.map((p) => (p.id === id ? updated : p));
+    if (updated) {
+      this.projects = this.projects.map((p) => (p.id === id ? updated : p));
+      if (patch.path != null) await this.refreshBranches([updated]);
+    }
     return updated;
   }
 
