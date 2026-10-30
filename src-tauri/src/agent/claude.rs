@@ -23,7 +23,7 @@ pub struct ClaudeBackend {
 }
 
 impl ClaudeBackend {
-    /// `mcp_exe` is the Workzone binary that serves `ask_user` (normally the running app).
+    /// `mcp_exe` is the Hivemind binary that serves `ask_user` (normally the running app).
     pub fn new(data_dir: &Path, mcp_exe: &Path) -> std::io::Result<Self> {
         let config = json!({ "mcpServers": { mcp::SERVER_NAME: {
             "type": "stdio",
@@ -43,7 +43,7 @@ impl ClaudeBackend {
             .arg(&self.mcp_config)
             .args(["--append-system-prompt", INSTRUCTIONS]);
         if let Some(model) =
-            request.options.model.clone().or_else(|| std::env::var("WORKZONE_CLAUDE_MODEL").ok())
+            request.options.model.clone().or_else(|| std::env::var("HIVEMIND_CLAUDE_MODEL").ok())
         {
             cmd.args(["--model", &model]);
         }
@@ -54,12 +54,12 @@ impl ClaudeBackend {
     }
 }
 
-/// The configured path, else `WORKZONE_CLAUDE_BIN`, else `claude` from PATH.
+/// The configured path, else `HIVEMIND_CLAUDE_BIN`, else `claude` from PATH.
 fn find(configured: Option<&Path>) -> AppResult<PathBuf> {
     process::find_binary(
         LABEL,
         configured,
-        "WORKZONE_CLAUDE_BIN",
+        "HIVEMIND_CLAUDE_BIN",
         "claude",
         &[],
         "https://claude.com/claude-code",
@@ -299,7 +299,7 @@ mod tests {
             r#"{"type":"system","subtype":"init","session_id":"s-1","tools":[]}"#,
             r#"{"type":"assistant","message":{"content":[{"type":"thinking","thinking":"hmm"},{"type":"text","text":"Looking."},{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"ls -la\nmore","description":"List"}}]}}"#,
             r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":[{"type":"text","text":"a.txt"}],"is_error":false}]}}"#,
-            r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t2","name":"mcp__workzone__ask_user","input":{"question":"A or B?","options":["A","B"]}}]}}"#,
+            r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t2","name":"mcp__hivemind__ask_user","input":{"question":"A or B?","options":["A","B"]}}]}}"#,
             r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t2","content":"Question delivered"}]}}"#,
             r#"{"type":"rate_limit_event","rate_limit_info":{"unifiedWindows":{"five_hour":{"utilization":0.25,"resetsAt":1793307000}}}}"#,
             r#"{"type":"system","subtype":"post_turn_summary","status_category":"blocked","needs_action":"choose A or B"}"#,

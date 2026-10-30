@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Workzone",
+  "productName": "Hivemind",
   "version": "0.1.0",
-  "identifier": "dev.workzone.app",
+  "identifier": "dev.hivemind.app",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Workzone",
+        "title": "Hivemind",
         "width": 1440,
         "height": 900,
         "minWidth": 960,
@@ -40,7 +40,7 @@
     ],
     "category": "DeveloperTool",
     "shortDescription": "A board for running AI coding agents across projects",
-    "longDescription": "Workzone runs coding agents such as Claude Code and OpenCode headless, one ticket per project at a time, and shows their work on a Kanban board.",
+    "longDescription": "Hivemind runs coding agents such as Claude Code and OpenCode headless, one ticket per project at a time, and shows their work on a Kanban board.",
     "publisher": "Boris Brock",
     "copyright": "\u00a9 2026 Boris Brock",
     "windows": {

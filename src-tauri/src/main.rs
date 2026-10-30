@@ -2,7 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    if !workzone_lib::run_mcp_server_if_requested() {
-        workzone_lib::run()
+    if !hivemind_lib::run_mcp_server_if_requested() {
+        hivemind_lib::run()
     }
 }

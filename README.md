@@ -1,7 +1,7 @@
-# Workzone
+# Hivemind
 
 A desktop board for running AI coding agents across several projects. Write a ticket, move it to
-**Ready**, and Workzone runs [Claude Code](https://claude.com/claude-code) or
+**Ready**, and Hivemind runs [Claude Code](https://claude.com/claude-code) or
 [OpenCode](https://opencode.ai) headless in the project folder. You follow the agent's work in the
 ticket and answer its questions there, instead of juggling a dozen terminal sessions.
 
@@ -18,7 +18,7 @@ ticket and answer its questions there, instead of juggling a dozen terminal sess
   - Claude Code (`claude`). On Windows, Claude Code also needs [Git for Windows](https://git-scm.com).
   - OpenCode (`opencode`) 1.18 or newer.
 
-  Workzone finds them on `PATH`; otherwise set the path in **Settings**, where **Check** tells you
+  Hivemind finds them on `PATH`; otherwise set the path in **Settings**, where **Check** tells you
   whether it works.
 - **Linux**: the WebKitGTK build dependencies, e.g. on Debian/Ubuntu
 
@@ -38,7 +38,7 @@ npm run tauri dev
 ```
 
 The window reloads on frontend changes; Rust changes rebuild and restart the app. In dev builds the
-app state is available as `workzone` in the web inspector's console.
+app state is available as `hivemind` in the web inspector's console.
 
 To build a release binary without installers and start it, use the scripts in the repository root:
 `build.bat` / `run.bat` on Windows, `./build.sh` / `./run.sh` on Linux. `run` builds first if there
@@ -56,8 +56,9 @@ npm run bundle:windows   # NSIS .exe and .msi
 The installers end up in `src-tauri/target/release/bundle/`. Building the AppImage downloads Tauri's
 `linuxdeploy` helper on first use. There is no auto-update; install a new build over the old one.
 
-App data (database, generated agent config) lives in `~/.local/share/dev.workzone.app` on Linux and
-`%APPDATA%\dev.workzone.app` on Windows.
+App data (database, generated agent config) lives in `~/.local/share/dev.hivemind.app` on Linux and
+`%APPDATA%\dev.hivemind.app` on Windows. Hivemind was called Workzone before; on its first start it
+copies the database and window state over from `dev.workzone.app` and leaves that folder as a backup.
 
 ## Checks and tests
 
@@ -76,7 +77,7 @@ cheap or free model they cost cents), so they are ignored by default:
 
 ```bash
 cd src-tauri && cargo build
-WORKZONE_CLAUDE_MODEL=haiku WORKZONE_OPENCODE_MODEL=opencode/big-pickle \
+HIVEMIND_CLAUDE_MODEL=haiku HIVEMIND_OPENCODE_MODEL=opencode/big-pickle \
   cargo test agent::e2e -- --ignored --nocapture --test-threads 1
 ```
 
@@ -86,5 +87,5 @@ Add `claude` or `opencode` to the filter (`agent::e2e::opencode`) to test one ag
 
 | Variable | Purpose |
 |---|---|
-| `WORKZONE_CLAUDE_BIN`, `WORKZONE_OPENCODE_BIN` | Agent executable when none is set in Settings |
-| `WORKZONE_CLAUDE_MODEL`, `WORKZONE_OPENCODE_MODEL` | Model when none is set in Settings |
+| `HIVEMIND_CLAUDE_BIN`, `HIVEMIND_OPENCODE_BIN` | Agent executable when none is set in Settings |
+| `HIVEMIND_CLAUDE_MODEL`, `HIVEMIND_OPENCODE_MODEL` | Model when none is set in Settings |

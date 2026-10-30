@@ -22,14 +22,14 @@ use crate::models::EventData;
 
 const LABEL: &str = "OpenCode";
 /// Name under which OpenCode exposes our MCP tool to the model.
-const ASK_TOOL: &str = "workzone_ask_user";
+const ASK_TOOL: &str = "hivemind_ask_user";
 
 pub struct OpenCodeBackend {
     config: String,
 }
 
 impl OpenCodeBackend {
-    /// `mcp_exe` is the Workzone binary that serves `ask_user` (normally the running app).
+    /// `mcp_exe` is the Hivemind binary that serves `ask_user` (normally the running app).
     pub fn new(data_dir: &Path, mcp_exe: &Path) -> std::io::Result<Self> {
         let instructions = data_dir.join("opencode-instructions.md");
         std::fs::write(&instructions, INSTRUCTIONS)?;
@@ -52,7 +52,7 @@ impl OpenCodeBackend {
             .env("PWD", &request.cwd)
             .env("OPENCODE_CONFIG_CONTENT", &self.config);
         if let Some(model) =
-            request.options.model.clone().or_else(|| std::env::var("WORKZONE_OPENCODE_MODEL").ok())
+            request.options.model.clone().or_else(|| std::env::var("HIVEMIND_OPENCODE_MODEL").ok())
         {
             cmd.args(["--model", &model]);
         }
@@ -63,7 +63,7 @@ impl OpenCodeBackend {
     }
 }
 
-/// The configured path, else `WORKZONE_OPENCODE_BIN`, else PATH, else the installer's location.
+/// The configured path, else `HIVEMIND_OPENCODE_BIN`, else PATH, else the installer's location.
 fn find(configured: Option<&Path>) -> AppResult<PathBuf> {
     let installed: Vec<PathBuf> = std::env::home_dir()
         .map(|h| h.join(".opencode").join("bin"))
@@ -73,7 +73,7 @@ fn find(configured: Option<&Path>) -> AppResult<PathBuf> {
     process::find_binary(
         LABEL,
         configured,
-        "WORKZONE_OPENCODE_BIN",
+        "HIVEMIND_OPENCODE_BIN",
         "opencode",
         &installed,
         "https://opencode.ai",
@@ -264,7 +264,7 @@ mod tests {
                 r#"{"type":"tool_use","sessionID":"ses_1","part":{"type":"tool","tool":"bash","callID":"c1","state":{"status":"completed","input":{"command":"ls -la","description":"List"},"output":"a.txt","title":"ls -la"}}}"#,
                 r#"{"type":"tool_use","sessionID":"ses_1","part":{"type":"tool","tool":"read","callID":"c2","state":{"status":"error","input":{"filePath":"/x"},"error":"File not found"}}}"#,
                 r#"{"type":"step_finish","sessionID":"ses_1","part":{"type":"step-finish","reason":"tool-calls","tokens":{"input":100,"output":10,"reasoning":5,"cache":{"read":50,"write":0}},"cost":0.01}}"#,
-                r#"{"type":"tool_use","sessionID":"ses_1","part":{"type":"tool","tool":"workzone_ask_user","callID":"c3","state":{"status":"completed","input":{"question":"A or B?","options":["A","B"]},"output":"Question delivered"}}}"#,
+                r#"{"type":"tool_use","sessionID":"ses_1","part":{"type":"tool","tool":"hivemind_ask_user","callID":"c3","state":{"status":"completed","input":{"question":"A or B?","options":["A","B"]},"output":"Question delivered"}}}"#,
                 r#"{"type":"text","sessionID":"ses_1","part":{"type":"text","text":"Waiting for your answer."}}"#,
                 r#"{"type":"step_finish","sessionID":"ses_1","part":{"type":"step-finish","reason":"stop","tokens":{"input":20,"output":3,"reasoning":0,"cache":{"read":0,"write":7}},"cost":0.002}}"#,
             ],

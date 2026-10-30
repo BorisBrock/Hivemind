@@ -1,7 +1,7 @@
 //! End-to-end runs against the real Claude Code CLI. They cost tokens, so they are ignored
 //! by default. Run with (after `cargo build`, which provides the MCP server binary):
 //!
-//!     WORKZONE_CLAUDE_MODEL=haiku WORKZONE_OPENCODE_MODEL=opencode/big-pickle \
+//!     HIVEMIND_CLAUDE_MODEL=haiku HIVEMIND_OPENCODE_MODEL=opencode/big-pickle \
 //!         cargo test agent::e2e -- --ignored --nocapture --test-threads 1
 //!
 //! Each scenario runs once per agent (`agent::e2e::claude::*`, `agent::e2e::opencode::*`).
@@ -40,9 +40,9 @@ struct Env {
 }
 
 async fn env(name: &str, agent: &str) -> Env {
-    let mcp_exe = Path::new(env!("CARGO_MANIFEST_DIR")).join("target/debug/workzone");
+    let mcp_exe = Path::new(env!("CARGO_MANIFEST_DIR")).join("target/debug/hivemind");
     assert!(mcp_exe.exists(), "run `cargo build` first: the MCP server is the app binary");
-    let base = std::env::temp_dir().join(format!("workzone-e2e-{name}-{}", std::process::id()));
+    let base = std::env::temp_dir().join(format!("hivemind-e2e-{name}-{}", std::process::id()));
     let project_dir = base.join("project");
     std::fs::create_dir_all(&project_dir).unwrap();
 

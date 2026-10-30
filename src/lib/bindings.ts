@@ -59,7 +59,7 @@ export type EventData_Deserialize =
 { kind: "question"; question: string; options: string[] } | 
 /**  End of an agent turn. */
 { kind: "turn_result"; isError: boolean; text?: string | null; costUsd: number | null; inputTokens: number; outputTokens: number; durationMs: number } | { kind: "error"; message: string } | 
-/**  Notes from Workzone itself (started, cancelled, interrupted, …). */
+/**  Notes from Hivemind itself (started, cancelled, interrupted, …). */
 { kind: "system"; message: string };
 
 export type EventData_Serialize = 
@@ -71,7 +71,7 @@ export type EventData_Serialize =
 { kind: "question"; question: string; options: string[] } | 
 /**  End of an agent turn. */
 { kind: "turn_result"; isError: boolean; text: string | null; costUsd: number | null; inputTokens: number; outputTokens: number; durationMs: number } | { kind: "error"; message: string } | 
-/**  Notes from Workzone itself (started, cancelled, interrupted, …). */
+/**  Notes from Hivemind itself (started, cancelled, interrupted, …). */
 { kind: "system"; message: string };
 
 export type NewProject = NewProject_Serialize | NewProject_Deserialize;

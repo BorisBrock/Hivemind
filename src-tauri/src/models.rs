@@ -129,7 +129,7 @@ pub enum EventData {
     Error {
         message: String,
     },
-    /// Notes from Workzone itself (started, cancelled, interrupted, …).
+    /// Notes from Hivemind itself (started, cancelled, interrupted, …).
     System {
         message: String,
     },

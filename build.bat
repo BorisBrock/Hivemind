@@ -1,5 +1,5 @@
 @echo off
-rem Builds the Workzone release binary (no installers) into src-tauri\target\release\.
+rem Builds the Hivemind release binary (no installers) into src-tauri\target\release\.
 setlocal
 cd /d "%~dp0"
 

@@ -4,7 +4,7 @@ import type { Ticket } from "./app.svelte";
 
 let permitted: boolean | undefined;
 
-/** Tells the user that an agent finished or needs them, unless they are looking at Workzone. */
+/** Tells the user that an agent finished or needs them, unless they are looking at Hivemind. */
 export async function notifyAgentStopped(ticket: Ticket, projectName: string) {
   const window = getCurrentWindow();
   if (await window.isFocused()) return;

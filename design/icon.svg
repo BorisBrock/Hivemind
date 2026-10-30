@@ -1,23 +1,64 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#1e2433"/>
-      <stop offset="1" stop-color="#0e1116"/>
+      <stop offset="0" stop-color="#231c14"/>
+      <stop offset="1" stop-color="#0d0b09"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#ffb627" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#ffb627" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="honey" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffd36b"/>
+      <stop offset="1" stop-color="#f29a0e"/>
+    </linearGradient>
+    <linearGradient id="core" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff1c2"/>
+      <stop offset="1" stop-color="#ffc23d"/>
     </linearGradient>
   </defs>
   <rect x="32" y="32" width="960" height="960" rx="220" fill="url(#bg)"/>
-  <rect x="32" y="32" width="960" height="960" rx="220" fill="none" stroke="#2a303b" stroke-width="8"/>
-  <!-- three board columns -->
-  <rect x="160" y="200" width="200" height="624" rx="44" fill="#ffffff" fill-opacity="0.06"/>
-  <rect x="412" y="200" width="200" height="624" rx="44" fill="#ffffff" fill-opacity="0.06"/>
-  <rect x="664" y="200" width="200" height="624" rx="44" fill="#ffffff" fill-opacity="0.06"/>
-  <!-- ticket cards in project colours -->
-  <rect x="184" y="232" width="152" height="112" rx="26" fill="#4f8cff"/>
-  <rect x="184" y="368" width="152" height="112" rx="26" fill="#a77bf3"/>
-  <rect x="184" y="504" width="152" height="112" rx="26" fill="#3ecf8e"/>
-  <rect x="436" y="232" width="152" height="112" rx="26" fill="#f5a524"/>
-  <rect x="436" y="368" width="152" height="112" rx="26" fill="#4f8cff"/>
-  <rect x="688" y="232" width="152" height="112" rx="26" fill="#3ecf8e"/>
-  <!-- the agent at work: a pulse dot on the middle column -->
-  <circle cx="560" cy="406" r="18" fill="#ffffff"/>
+  <rect x="32" y="32" width="960" height="960" rx="220" fill="none" stroke="#3a2f22" stroke-width="8"/>
+  <circle cx="512" cy="512" r="440" fill="url(#glow)"/>
+  <!-- honeycomb: filled cells hold honey, empty ones are still being built -->
+  <polygon points="624.0,276.0 568.0,373.0 456.0,373.0 400.0,276.0 456.0,179.0 568.0,179.0" fill="url(#honey)" stroke="url(#honey)" stroke-width="20" stroke-linejoin="round"/>
+  <polygon points="828.4,394.0 772.4,491.0 660.4,491.0 604.4,394.0 660.4,297.0 772.4,297.0" fill="url(#honey)" stroke="url(#honey)" stroke-width="20" stroke-linejoin="round"/>
+  <polygon points="826.4,630.0 771.4,725.3 661.4,725.3 606.4,630.0 661.4,534.7 771.4,534.7" fill="#ffb627" fill-opacity="0.08" stroke="#f2a01a" stroke-width="16" stroke-linejoin="round"/>
+  <polygon points="624.0,748.0 568.0,845.0 456.0,845.0 400.0,748.0 456.0,651.0 568.0,651.0" fill="url(#honey)" stroke="url(#honey)" stroke-width="20" stroke-linejoin="round"/>
+  <polygon points="419.6,630.0 363.6,727.0 251.6,727.0 195.6,630.0 251.6,533.0 363.6,533.0" fill="url(#honey)" stroke="url(#honey)" stroke-width="20" stroke-linejoin="round"/>
+  <polygon points="417.6,394.0 362.6,489.3 252.6,489.3 197.6,394.0 252.6,298.7 362.6,298.7" fill="#ffb627" fill-opacity="0.08" stroke="#f2a01a" stroke-width="16" stroke-linejoin="round"/>
+  <polygon points="624.0,512.0 568.0,609.0 456.0,609.0 400.0,512.0 456.0,415.0 568.0,415.0" fill="url(#core)" stroke="url(#core)" stroke-width="20" stroke-linejoin="round"/>
+  <!-- the mind: synapses linking every cell to the core and to its neighbours -->
+  <g stroke="#2a1a06" stroke-width="14" stroke-linecap="round" fill="none" stroke-opacity="0.85">
+    <line x1="512" y1="512" x2="512.0" y2="276.0"/>
+    <line x1="512" y1="512" x2="716.4" y2="394.0"/>
+    <line x1="512" y1="512" x2="716.4" y2="630.0"/>
+    <line x1="512" y1="512" x2="512.0" y2="748.0"/>
+    <line x1="512" y1="512" x2="307.6" y2="630.0"/>
+    <line x1="512" y1="512" x2="307.6" y2="394.0"/>
+    <line x1="512.0" y1="276.0" x2="716.4" y2="394.0"/>
+    <line x1="716.4" y1="394.0" x2="716.4" y2="630.0"/>
+    <line x1="716.4" y1="630.0" x2="512.0" y2="748.0"/>
+    <line x1="512.0" y1="748.0" x2="307.6" y2="630.0"/>
+    <line x1="307.6" y1="630.0" x2="307.6" y2="394.0"/>
+    <line x1="307.6" y1="394.0" x2="512.0" y2="276.0"/>
+  </g>
+  <g fill="#2a1a06">
+    <circle cx="512.0" cy="276.0" r="30"/>
+    <circle cx="716.4" cy="394.0" r="30"/>
+    <circle cx="716.4" cy="630.0" r="30"/>
+    <circle cx="512.0" cy="748.0" r="30"/>
+    <circle cx="307.6" cy="630.0" r="30"/>
+    <circle cx="307.6" cy="394.0" r="30"/>
+  </g>
+  <g fill="#fff6dc">
+    <circle cx="512.0" cy="276.0" r="14"/>
+    <circle cx="716.4" cy="394.0" r="14"/>
+    <circle cx="716.4" cy="630.0" r="11"/>
+    <circle cx="512.0" cy="748.0" r="14"/>
+    <circle cx="307.6" cy="630.0" r="14"/>
+    <circle cx="307.6" cy="394.0" r="11"/>
+  </g>
+  <circle cx="512" cy="512" r="46" fill="#2a1a06"/>
+  <circle cx="512" cy="512" r="26" fill="#ffffff"/>
 </svg>

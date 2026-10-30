@@ -17,7 +17,7 @@ use crate::error::AppResult;
 use crate::models::{AgentOptions, EventData, UsageLimits};
 
 /// Standing instructions for every agent, so it knows it runs unattended.
-pub const INSTRUCTIONS: &str = "You are running unattended inside Workzone, a task board. Nobody watches \
+pub const INSTRUCTIONS: &str = "You are running unattended inside Hivemind, a task board. Nobody watches \
 your output live. When you need a decision or information from the user, call the `ask_user` tool \
 with your question (and answer options if useful), then end your turn immediately. Do not ask \
 questions in plain text. When you are done, end with a short summary of what you changed.";

@@ -1623,6 +1623,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
+name = "hivemind"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "command-group",
+ "libc",
+ "serde",
+ "serde_json",
+ "specta",
+ "specta-typescript",
+ "sqlx",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-notification",
+ "tauri-plugin-window-state",
+ "tauri-specta",
+ "thiserror 2.0.21",
+ "tokio",
+ "which",
+]
+
+[[package]]
 name = "hkdf"
 version = "0.12.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5553,29 +5576,6 @@ name = "wit-bindgen"
 version = "0.57.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
-
-[[package]]
-name = "workzone"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "command-group",
- "libc",
- "serde",
- "serde_json",
- "specta",
- "specta-typescript",
- "sqlx",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-notification",
- "tauri-plugin-window-state",
- "tauri-specta",
- "thiserror 2.0.21",
- "tokio",
- "which",
-]
 
 [[package]]
 name = "writeable"

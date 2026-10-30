@@ -1,6 +1,6 @@
 <script lang="ts">
   // Shows a file path on one line. When space runs out, the middle is elided so that
-  // both the beginning and the last folder stay visible ("D:\dev\Pro…\workzone").
+  // both the beginning and the last folder stay visible ("D:\dev\Pro…\hivemind").
   let { path, class: className = "" }: { path: string; class?: string } = $props();
 
   const parts = $derived.by(() => {

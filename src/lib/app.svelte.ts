@@ -277,4 +277,4 @@ class AppState {
 export const app = new AppState();
 
 // Debugging aid: inspect or drive the state from the dev tools console.
-if (import.meta.env.DEV) Object.assign(globalThis, { workzone: app });
+if (import.meta.env.DEV) Object.assign(globalThis, { hivemind: app });

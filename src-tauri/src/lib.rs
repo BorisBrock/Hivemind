@@ -4,6 +4,7 @@ mod db;
 mod error;
 mod events;
 mod git;
+mod legacy;
 mod models;
 mod repo;
 
@@ -55,7 +56,7 @@ fn export_bindings(builder: &Builder<tauri::Wry>) {
         .expect("failed to export TypeScript bindings");
 }
 
-/// Entry point of `workzone mcp-ask-user`, which Claude Code starts as an MCP server.
+/// Entry point of `hivemind mcp-ask-user`, which Claude Code starts as an MCP server.
 pub fn run_mcp_server_if_requested() -> bool {
     if std::env::args().nth(1).as_deref() == Some(agent::mcp::SUBCOMMAND) {
         agent::mcp::serve();
@@ -71,6 +72,7 @@ pub fn run() {
     export_bindings(&builder);
 
     tauri::Builder::default()
+        .plugin(legacy::plugin())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         // Remembers window size and position between runs.
@@ -80,7 +82,7 @@ pub fn run() {
             builder.mount_events(app);
             let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;
-            let pool = tauri::async_runtime::block_on(db::open(&dir.join("workzone.db")))?;
+            let pool = tauri::async_runtime::block_on(db::open(&dir.join(legacy::DB)))?;
             let exe = std::env::current_exe()?;
             let backend = Arc::new(agent::Agents {
                 claude: ClaudeBackend::new(&dir, &exe)?,

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds the Workzone release binary (no installers) into src-tauri/target/release/.
+# Builds the Hivemind release binary (no installers) into src-tauri/target/release/.
 set -euo pipefail
 cd "$(dirname "$0")"
 

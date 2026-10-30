@@ -1,6 +1,6 @@
 //! Minimal stdio MCP server exposing the `ask_user` tool to Claude Code.
 //!
-//! Claude starts it as `workzone mcp-ask-user`. It is stateless: the agent manager sees the
+//! Claude starts it as `hivemind mcp-ask-user`. It is stateless: the agent manager sees the
 //! question in the agent's own `tool_use` event, so the tool only acknowledges it and tells
 //! the agent to end its turn. The answer arrives later as the next prompt (`--resume`).
 
@@ -8,10 +8,10 @@ use std::io::{BufRead, Write};
 
 use serde_json::{Value, json};
 
-pub const SERVER_NAME: &str = "workzone";
+pub const SERVER_NAME: &str = "hivemind";
 pub const TOOL_NAME: &str = "ask_user";
 /// Name under which Claude Code exposes the tool to the model.
-pub const QUALIFIED_TOOL_NAME: &str = "mcp__workzone__ask_user";
+pub const QUALIFIED_TOOL_NAME: &str = "mcp__hivemind__ask_user";
 pub const SUBCOMMAND: &str = "mcp-ask-user";
 
 pub fn serve() {

@@ -114,7 +114,7 @@ impl AgentManager {
     /// At start-up: tickets left In Progress lost their agent; let the user continue them.
     pub async fn recover(&self) -> AppResult<()> {
         for id in repo::mark_interrupted(&self.db).await? {
-            let message = "Interrupted: Workzone was closed while the agent was working. \
+            let message = "Interrupted: Hivemind was closed while the agent was working. \
                            Reply to let it continue, or cancel the ticket."
                 .into();
             self.record(id, EventData::System { message }).await?;
