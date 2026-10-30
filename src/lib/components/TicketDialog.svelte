@@ -8,7 +8,6 @@
   import Markdown from "./Markdown.svelte";
   import MarkdownEditor from "./MarkdownEditor.svelte";
   import Modal from "./Modal.svelte";
-  import PathText from "./PathText.svelte";
   import Transcript from "./Transcript.svelte";
 
   let { dialog }: { dialog: TicketDialogState } = $props();
@@ -231,9 +230,6 @@
               {p.name}
             </button>
           {/each}
-          {#if project}
-            <PathText path={project.path} class="ml-1 font-mono text-xs text-muted" />
-          {/if}
         </div>
       {:else}
         <span class="rounded-full bg-(--project)/15 px-2.5 py-0.5 text-xs font-medium text-project">
