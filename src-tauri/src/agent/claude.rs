@@ -26,6 +26,8 @@ const LABEL: &str = "Claude Code";
 
 pub struct ClaudeBackend {
     /// Written once at start-up; points Claude at our own binary as the `ask_user` MCP server.
+    /// It is added to the user's own MCP servers (user, project and local scope), not instead
+    /// of them, so tools like Jira stay available to the agent.
     mcp_config: PathBuf,
 }
 
@@ -47,7 +49,7 @@ impl ClaudeBackend {
         cmd.current_dir(&request.cwd)
             .args(["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose"])
             .arg("--replay-user-messages")
-            .args(["--permission-mode", "bypassPermissions", "--strict-mcp-config", "--mcp-config"])
+            .args(["--permission-mode", "bypassPermissions", "--mcp-config"])
             .arg(&self.mcp_config)
             .args(["--append-system-prompt", INSTRUCTIONS]);
         if let Some(model) =
