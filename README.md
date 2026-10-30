@@ -43,6 +43,10 @@ npm run tauri dev
 The window reloads on frontend changes; Rust changes rebuild and restart the app. In dev builds the
 app state is available as `workzone` in the web inspector's console.
 
+To build a release binary without installers and start it, use the scripts in the repository root:
+`build.bat` / `run.bat` on Windows, `./build.sh` / `./run.sh` on Linux. `run` builds first if there
+is no binary yet; after code changes, run `build` again.
+
 ## Building installers
 
 Run on the platform you are building for (Windows installers can only be built on Windows):
