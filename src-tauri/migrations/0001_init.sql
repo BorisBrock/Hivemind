@@ -19,6 +19,13 @@ CREATE TABLE tickets (
     -- Rank within its column; fractional so a move only rewrites one row.
     position         REAL    NOT NULL,
     agent_session_id TEXT,
+    -- Which agent owns `agent_session_id`; a session can only be continued by the same agent.
+    agent            TEXT,
+    -- Prompt for the agent's next run when it continues an existing session
+    -- (a user reply, or a comment when a Done ticket is sent back to Ready).
+    pending_prompt   TEXT,
+    -- Parallel tickets (questions, analysis) run alongside the project's sequential queue.
+    parallel         BOOLEAN NOT NULL DEFAULT 0,
     created_at       TEXT    NOT NULL,
     updated_at       TEXT    NOT NULL
 );
@@ -36,6 +43,18 @@ CREATE TABLE ticket_events (
     created_at TEXT    NOT NULL,
     UNIQUE (ticket_id, seq)
 );
+
+-- One row per finished agent turn, for usage statistics. Kept when a ticket is deleted.
+CREATE TABLE agent_turns (
+    id            INTEGER PRIMARY KEY,
+    ticket_id     INTEGER REFERENCES tickets (id) ON DELETE SET NULL,
+    created_at    TEXT    NOT NULL,
+    input_tokens  INTEGER NOT NULL,
+    output_tokens INTEGER NOT NULL,
+    cost_usd      REAL    NOT NULL
+);
+
+CREATE INDEX agent_turns_by_time ON agent_turns (created_at);
 
 CREATE TABLE settings (
     key   TEXT PRIMARY KEY,

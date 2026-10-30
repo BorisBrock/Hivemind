@@ -19,6 +19,7 @@ use crate::error::{AppError, AppResult};
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
+#[cfg(unix)]
 const GRACE: Duration = Duration::from_secs(3);
 
 pub async fn kill_tree(child: &mut AsyncGroupChild) {

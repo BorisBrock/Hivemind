@@ -693,22 +693,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn older_settings_keep_their_values() {
-        let db = db::open_in_memory().await.unwrap();
-        // As saved by Phase 4, before per-agent models.
-        sqlx::query("INSERT INTO settings (key, value) VALUES ('app', ?)")
-            .bind(r#"{"theme":"nord","palette":"vivid","agent":"claude","claudePath":"","model":"haiku"}"#)
-            .execute(&db)
-            .await
-            .unwrap();
-        let s = get_settings(&db).await.unwrap();
-        assert_eq!(
-            (s.theme.as_str(), s.claude_model.as_str(), s.opencode_model.as_str()),
-            ("nord", "haiku", "")
-        );
-    }
-
-    #[tokio::test]
     async fn settings_round_trip_with_defaults() {
         let db = db::open_in_memory().await.unwrap();
         assert_eq!(get_settings(&db).await.unwrap(), Settings::default());

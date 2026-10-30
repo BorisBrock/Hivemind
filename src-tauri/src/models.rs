@@ -165,7 +165,6 @@ pub struct Settings {
     pub opencode_path: String,
     /// Models passed to the agents (e.g. `sonnet`, `opencode/big-pickle`); empty means the
     /// agent's own default.
-    #[serde(alias = "model")]
     pub claude_model: String,
     pub opencode_model: String,
 }

@@ -9,9 +9,6 @@ ticket and answer its questions there, instead of juggling a dozen terminal sess
 - Tickets move through **Planning → Ready → In Progress → Needs Input → Done** on a Kanban board.
 - Agents run **fully autonomously** (no permission prompts). Use version control in your projects.
 
-See [project-plan.md](project-plan.md) for the idea and [implementation-plan.md](implementation-plan.md)
-for the design.
-
 ## Requirements
 
 - **Node.js** 22 or newer and **npm**.

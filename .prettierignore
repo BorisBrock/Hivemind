@@ -3,6 +3,5 @@ build
 node_modules
 package-lock.json
 src-tauri
-spikes
 src/lib/bindings.ts
 *.md
