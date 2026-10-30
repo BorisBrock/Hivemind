@@ -1,4 +1,5 @@
 //! OpenCode backend: drives `opencode run --format json`, one process per turn.
+//! Messages sent while it works can't reach it mid-turn; they start the next turn instead.
 //!
 //! The prompt goes in on stdin (so no shell quoting is involved), `--session` continues a
 //! conversation, and our `ask_user` MCP server plus the standing instructions are passed via
@@ -17,6 +18,7 @@ use super::process::{self, Spawned};
 use super::{
     AgentBackend, AgentEvent, INSTRUCTIONS, MAX_SUMMARY, MAX_TOOL_OUTPUT, Run, RunRequest, mcp, truncate,
 };
+use crate::attachments;
 use crate::error::AppResult;
 use crate::models::EventData;
 
@@ -59,6 +61,9 @@ impl OpenCodeBackend {
         if let Some(session) = &request.resume {
             cmd.args(["--session", session]);
         }
+        for image in attachments::referenced_images(&request.prompt) {
+            cmd.arg("--file").arg(image);
+        }
         Ok(cmd)
     }
 }
@@ -91,7 +96,8 @@ impl AgentBackend for OpenCodeBackend {
         let (tx, rx) = mpsc::channel(256);
         let (cancel_tx, cancel_rx) = oneshot::channel();
         tokio::spawn(drive(spawned, request.prompt, tx, cancel_rx));
-        Ok(Run { events: rx, cancel: cancel_tx })
+        // The prompt is read from stdin up to EOF, so messages wait for the next turn.
+        Ok(Run { events: rx, cancel: cancel_tx, messages: None })
     }
 }
 

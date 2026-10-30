@@ -1,9 +1,15 @@
 //! Claude Code backend: drives `claude -p` in bidirectional stream-JSON mode.
 //! See `spikes/agent-spike/FINDINGS.md` for the protocol details this relies on.
+//!
+//! Messages written to stdin while a turn runs are taken in at the next tool call; one that
+//! comes too late for that starts another turn after the `result`. With
+//! `--replay-user-messages`, Claude echoes each user message (`isReplay`) when it takes it in,
+//! so stdin stays open until every message has been echoed.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
+use base64::Engine;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::{mpsc, oneshot};
@@ -12,6 +18,7 @@ use super::process::{self, Spawned};
 use super::{
     AgentBackend, AgentEvent, INSTRUCTIONS, MAX_SUMMARY, MAX_TOOL_OUTPUT, Run, RunRequest, mcp, truncate,
 };
+use crate::attachments;
 use crate::error::AppResult;
 use crate::models::{EventData, UsageLimits, UsageWindow};
 
@@ -39,6 +46,7 @@ impl ClaudeBackend {
         let mut cmd = process::base_command(&find(request.options.binary.as_deref())?);
         cmd.current_dir(&request.cwd)
             .args(["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose"])
+            .arg("--replay-user-messages")
             .args(["--permission-mode", "bypassPermissions", "--strict-mcp-config", "--mcp-config"])
             .arg(&self.mcp_config)
             .args(["--append-system-prompt", INSTRUCTIONS]);
@@ -76,9 +84,15 @@ impl AgentBackend for ClaudeBackend {
         let spawned = process::spawn(LABEL, &request.cwd, self.command(&request)?)?;
         let (tx, rx) = mpsc::channel(256);
         let (cancel_tx, cancel_rx) = oneshot::channel();
-        tokio::spawn(drive(spawned, request.prompt, tx, cancel_rx));
-        Ok(Run { events: rx, cancel: cancel_tx })
+        let (messages_tx, messages_rx) = mpsc::unbounded_channel();
+        tokio::spawn(drive(spawned, request.prompt, tx, cancel_rx, messages_rx));
+        Ok(Run { events: rx, cancel: cancel_tx, messages: Some(messages_tx) })
     }
+}
+
+async fn write_message(stdin: &mut tokio::process::ChildStdin, text: &str) -> std::io::Result<()> {
+    let message = json!({ "type": "user", "message": { "role": "user", "content": content(text) } });
+    stdin.write_all(format!("{message}\n").as_bytes()).await
 }
 
 async fn drive(
@@ -86,11 +100,11 @@ async fn drive(
     prompt: String,
     tx: mpsc::Sender<AgentEvent>,
     mut cancel: oneshot::Receiver<oneshot::Sender<()>>,
+    mut messages: mpsc::UnboundedReceiver<String>,
 ) {
     let Spawned { mut child, stdin, stdout, stderr } = spawned;
     let mut stdin = Some(stdin);
-    let message = json!({ "type": "user", "message": { "role": "user", "content": prompt } });
-    if let Err(e) = stdin.as_mut().unwrap().write_all(format!("{message}\n").as_bytes()).await {
+    if let Err(e) = write_message(stdin.as_mut().unwrap(), &prompt).await {
         let _ = tx.send(AgentEvent::Exited { error: Some(format!("could not send the prompt: {e}")) }).await;
         process::kill_tree(&mut child).await;
         return;
@@ -98,6 +112,8 @@ async fn drive(
 
     let mut parser = StreamParser::default();
     let mut saw_result = false;
+    // User messages written to stdin, and how many of them Claude has echoed (taken in).
+    let (mut sent, mut taken) = (1, 0);
     let mut lines = BufReader::new(stdout).lines();
     loop {
         tokio::select! {
@@ -108,12 +124,30 @@ async fn drive(
                 }
                 return; // a cancelled run reports nothing more
             }
+            Some(text) = messages.recv() => {
+                let written = match stdin.as_mut() {
+                    Some(stdin) => write_message(stdin, &text).await.is_ok(),
+                    None => false,
+                };
+                if written {
+                    sent += 1;
+                } else {
+                    let _ = tx.send(AgentEvent::Undelivered(text)).await;
+                }
+            }
             line = lines.next_line() => match line {
                 Ok(Some(line)) => {
                     let Ok(value) = serde_json::from_str::<Value>(&line) else { continue };
+                    if value["type"] == "user" && value["isReplay"] == true {
+                        taken += 1;
+                    }
+                    // Closing stdin after the last turn lets the CLI exit. Without any echo
+                    // (a CLI that ignores the flag), the run ends after one turn as before.
                     if value["type"] == "result" {
                         saw_result = true;
-                        stdin = None; // one turn per process: closing stdin lets the CLI exit
+                        if taken >= sent || taken == 0 {
+                            stdin = None;
+                        }
                     }
                     for event in parser.parse(&value) {
                         let _ = tx.send(event).await;
@@ -124,12 +158,42 @@ async fn drive(
         }
     }
     drop(stdin);
+    messages.close();
+    while let Ok(text) = messages.try_recv() {
+        let _ = tx.send(AgentEvent::Undelivered(text)).await;
+    }
     let status = child.wait().await;
     let error = match status {
         Ok(s) if s.success() && saw_result => None,
         other => Some(stderr.failure(LABEL, other)),
     };
     let _ = tx.send(AgentEvent::Exited { error }).await;
+}
+
+/// Largest image sent inline; the API rejects bigger ones. Larger images stay available to
+/// the agent through their path in the prompt.
+const MAX_IMAGE_BYTES: u64 = 5 * 1024 * 1024 * 3 / 4;
+
+/// Message content: the prompt text, plus the images it references as image blocks.
+fn content(prompt: &str) -> Value {
+    let images: Vec<Value> = attachments::referenced_images(prompt)
+        .into_iter()
+        .filter(|p| std::fs::metadata(p).is_ok_and(|m| m.len() <= MAX_IMAGE_BYTES))
+        .filter_map(|path| {
+            let data = std::fs::read(&path).ok()?;
+            Some(json!({ "type": "image", "source": {
+                "type": "base64",
+                "media_type": attachments::media_type(&path)?,
+                "data": base64::engine::general_purpose::STANDARD.encode(data),
+            }}))
+        })
+        .collect();
+    if images.is_empty() {
+        return Value::String(prompt.into());
+    }
+    let mut blocks = vec![json!({ "type": "text", "text": prompt })];
+    blocks.extend(images);
+    Value::Array(blocks)
 }
 
 /// Turns stream-JSON messages into agent events.
@@ -345,6 +409,23 @@ mod tests {
                 }),
             ]
         );
+    }
+
+    #[test]
+    fn referenced_images_are_sent_as_image_blocks() {
+        assert_eq!(content("plain"), json!("plain"));
+        let dir = std::env::temp_dir().join(format!("hivemind-claude-images-{}", std::process::id()));
+        let png = base64::engine::general_purpose::STANDARD.encode(b"png bytes");
+        let path = attachments::save(&dir, &png, "png").unwrap();
+        let prompt = format!("See ![image](<{path}>)");
+        assert_eq!(
+            content(&prompt),
+            json!([
+                { "type": "text", "text": prompt },
+                { "type": "image", "source": { "type": "base64", "media_type": "image/png", "data": png } },
+            ])
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

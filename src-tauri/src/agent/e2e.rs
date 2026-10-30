@@ -40,7 +40,8 @@ struct Env {
 }
 
 async fn env(name: &str, agent: &str) -> Env {
-    let mcp_exe = Path::new(env!("CARGO_MANIFEST_DIR")).join("target/debug/hivemind");
+    let mcp_exe = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join(format!("target/debug/hivemind{}", std::env::consts::EXE_SUFFIX));
     assert!(mcp_exe.exists(), "run `cargo build` first: the MCP server is the app binary");
     let base = std::env::temp_dir().join(format!("hivemind-e2e-{name}-{}", std::process::id()));
     let project_dir = base.join("project");
@@ -132,6 +133,24 @@ async fn question_and_reply(agent: &str) {
     assert!(files.iter().any(|f| f.path().extension().is_some_and(|x| x == "py")), "a .py file: {files:?}");
 }
 
+async fn message_while_working(agent: &str) {
+    let e = env("message", agent).await;
+    let id = e
+        .start(
+            "Run the shell command `sleep 15` in the foreground and wait for it. \
+             Then create a file done.txt containing exactly the word done. Do not ask questions.",
+        )
+        .await;
+    e.wait_until(id, "the session to start", |t, _| t.agent_session_id.is_some()).await;
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    e.agents.reply(id, "Also create a file extra.txt containing exactly the word extra.").await.unwrap();
+    e.wait_for(id, TicketStatus::Done).await;
+    for (file, word) in [("done.txt", "done"), ("extra.txt", "extra")] {
+        let text = std::fs::read_to_string(e.project_dir.join(file)).unwrap_or_default();
+        assert_eq!(text.trim(), word, "{file}");
+    }
+}
+
 async fn cancel_kills_the_agent_and_its_commands(agent: &str) {
     let e = env("cancel", agent).await;
     let marker = format!("wz-e2e-{}", std::process::id());
@@ -171,7 +190,12 @@ macro_rules! per_agent {
     };
 }
 
-per_agent!(simple_task_finishes, question_and_reply, cancel_kills_the_agent_and_its_commands);
+per_agent!(
+    simple_task_finishes,
+    question_and_reply,
+    message_while_working,
+    cancel_kills_the_agent_and_its_commands
+);
 
 /// Live processes whose command line contains `marker` (Linux).
 fn processes_with(marker: &str) -> usize {

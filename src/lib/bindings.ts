@@ -25,7 +25,7 @@ export const commands = {
 	moveTicket: (id: number, to: TicketStatus, beforeId: number | null) => __TAURI_INVOKE<Ticket_Serialize>("move_ticket", { id, to, beforeId }),
 	deleteTicket: (id: number) => __TAURI_INVOKE<null>("delete_ticket", { id }),
 	listTicketEvents: (ticketId: number) => __TAURI_INVOKE<TicketEvent_Serialize[]>("list_ticket_events", { ticketId }),
-	/**  Answer for an agent waiting in Needs Input. */
+	/**  Answer for an agent waiting in Needs Input, or a message to one working In Progress. */
 	replyToTicket: (id: number, text: string) => __TAURI_INVOKE<Ticket_Serialize>("reply_to_ticket", { id, text }),
 	/**  Done → Ready; `comment` becomes the next prompt of the same agent session. */
 	sendBackToReady: (id: number, comment: string) => __TAURI_INVOKE<Ticket_Serialize>("send_back_to_ready", { id, comment }),
@@ -47,6 +47,8 @@ export const commands = {
 	 *  Desktop offers to add the repository if it doesn't know it yet.
 	 */
 	openInGithubDesktop: (path: string) => __TAURI_INVOKE<null>("open_in_github_desktop", { path }),
+	/**  Saves a pasted image (base64) in the attachment folder; returns its absolute path. */
+	saveAttachment: (dataBase64: string, extension: string) => __TAURI_INVOKE<string>("save_attachment", { dataBase64, extension }),
 };
 
 /** Events */

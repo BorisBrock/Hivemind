@@ -1,6 +1,6 @@
 //! Owns every agent-driven ticket transition: starting Ready tickets (one sequential ticket
-//! per project, parallel ones right away), following a run to its end, user replies,
-//! sending back, cancelling and crash recovery.
+//! per project, parallel ones right away), following a run to its end, user replies and
+//! messages to working agents, sending back, cancelling and crash recovery.
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -28,11 +28,20 @@ pub struct AgentManager {
     db: SqlitePool,
     backend: Arc<dyn AgentBackend>,
     notifier: Arc<dyn Notifier>,
-    /// Cancel handles of running agents, by ticket id. A run that is no longer in here
-    /// when it ends was cancelled, and its ticket is no longer its business.
-    runs: Mutex<HashMap<i64, oneshot::Sender<oneshot::Sender<()>>>>,
+    /// Running agents, by ticket id. A run that is no longer in here when it ends was
+    /// cancelled, and its ticket is no longer its business.
+    runs: Mutex<HashMap<i64, Active>>,
     /// Serialises scheduling so a project never gets two sequential runs.
     schedule: tokio::sync::Mutex<()>,
+}
+
+/// A running agent.
+struct Active {
+    cancel: oneshot::Sender<oneshot::Sender<()>>,
+    /// Delivers messages mid-turn, for backends that can take them.
+    messages: Option<mpsc::UnboundedSender<String>>,
+    /// Messages the agent gets as its next turn, once the current one ends.
+    queued: Vec<String>,
 }
 
 impl AgentManager {
@@ -57,25 +66,39 @@ impl AgentManager {
         })
     }
 
-    /// Answers an agent that is waiting in Needs Input; continues the same session.
+    /// Answers an agent that is waiting in Needs Input, continuing the same session, or
+    /// passes a message to an agent that is still working on an In Progress ticket.
     pub async fn reply(self: &Arc<Self>, ticket_id: i64, text: &str) -> AppResult<Ticket> {
         let text = text.trim();
         if text.is_empty() {
             return Err(invalid("the reply must not be empty"));
         }
         let ticket = repo::get_ticket(&self.db, ticket_id).await?;
+        if ticket.status == TicketStatus::InProgress {
+            return self.interject(ticket, text).await;
+        }
         if ticket.status != TicketStatus::NeedsInput || self.is_running(ticket_id) {
             return Err(AppError::InvalidTransition { from: ticket.status, to: TicketStatus::InProgress });
         }
         let cwd = repo::get_project(&self.db, ticket.project_id).await?.path;
         let ticket = self.set_status(ticket_id, TicketStatus::InProgress).await?;
-        let prompt = match ticket.agent_session_id {
-            Some(_) => text.to_string(),
-            // The previous run never got a session: start over with the full task.
-            None => format!("{}\n\n{text}", ticket.body),
-        };
-        let resume = ticket.agent_session_id.clone();
+        let (prompt, resume) = continuation(&ticket, text);
         self.start(ticket.clone(), cwd.into(), prompt, resume).await?;
+        Ok(ticket)
+    }
+
+    /// Passes a message to the agent of an In Progress ticket: right away if its backend
+    /// takes messages mid-turn, else as its next turn.
+    async fn interject(&self, ticket: Ticket, text: &str) -> AppResult<Ticket> {
+        {
+            let mut runs = self.runs.lock().unwrap();
+            let active = runs.get_mut(&ticket.id).ok_or_else(|| invalid("the agent is not running"))?;
+            let sent = active.messages.as_ref().is_some_and(|m| m.send(text.to_string()).is_ok());
+            if !sent {
+                active.queued.push(text.to_string());
+            }
+        }
+        self.record(ticket.id, EventData::UserPrompt { text: text.to_string() }).await?;
         Ok(ticket)
     }
 
@@ -93,8 +116,8 @@ impl AgentManager {
         if !ticket.status.is_active() {
             return Err(AppError::InvalidTransition { from: ticket.status, to: TicketStatus::Planning });
         }
-        let cancel = self.runs.lock().unwrap().remove(&ticket_id);
-        if let Some(cancel) = cancel {
+        let active = self.runs.lock().unwrap().remove(&ticket_id);
+        if let Some(Active { cancel, .. }) = active {
             let (ack_tx, ack_rx) = oneshot::channel();
             if cancel.send(ack_tx).is_ok() {
                 let _ = ack_rx.await;
@@ -126,7 +149,7 @@ impl AgentManager {
     pub async fn shutdown(&self) {
         let runs: Vec<_> = self.runs.lock().unwrap().drain().collect();
         let mut acks = Vec::new();
-        for (_, cancel) in runs {
+        for (_, Active { cancel, .. }) in runs {
             let (tx, rx) = oneshot::channel();
             if cancel.send(tx).is_ok() {
                 acks.push(rx);
@@ -157,24 +180,39 @@ impl AgentManager {
                 .await?;
         }
         self.record(ticket.id, EventData::UserPrompt { text: prompt.clone() }).await?;
-        let settings = repo::get_settings(&self.db).await?;
-        // A session can only be continued by the agent that started it.
-        let agent = match (&resume, &ticket.agent) {
-            (Some(_), Some(agent)) => agent.clone(),
-            _ => settings.agent.clone(),
-        };
-        let options = AgentOptions::for_agent(&settings, &agent);
-        match self.backend.start(RunRequest { cwd, prompt, resume, options }) {
-            Ok(run) => {
-                self.runs.lock().unwrap().insert(ticket.id, run.cancel);
-                tokio::spawn(self.clone().follow(ticket.id, agent, run.events));
+        self.launch(ticket, cwd, prompt, resume).await
+    }
+
+    /// Starts the agent itself; the prompt is already in the transcript.
+    // Boxed like `kick`: a run that ends with queued messages launches the next one.
+    fn launch(
+        self: &Arc<Self>,
+        ticket: Ticket,
+        cwd: PathBuf,
+        prompt: String,
+        resume: Option<String>,
+    ) -> Pin<Box<dyn Future<Output = AppResult<()>> + Send + '_>> {
+        Box::pin(async move {
+            let settings = repo::get_settings(&self.db).await?;
+            // A session can only be continued by the agent that started it.
+            let agent = match (&resume, &ticket.agent) {
+                (Some(_), Some(agent)) => agent.clone(),
+                _ => settings.agent.clone(),
+            };
+            let options = AgentOptions::for_agent(&settings, &agent);
+            match self.backend.start(RunRequest { cwd, prompt, resume, options }) {
+                Ok(run) => {
+                    let active = Active { cancel: run.cancel, messages: run.messages, queued: vec![] };
+                    self.runs.lock().unwrap().insert(ticket.id, active);
+                    tokio::spawn(self.clone().follow(ticket.id, agent, run.events));
+                }
+                Err(e) => {
+                    self.record(ticket.id, EventData::Error { message: e.to_string() }).await?;
+                    self.set_status(ticket.id, TicketStatus::Done).await?;
+                }
             }
-            Err(e) => {
-                self.record(ticket.id, EventData::Error { message: e.to_string() }).await?;
-                self.set_status(ticket.id, TicketStatus::Done).await?;
-            }
-        }
-        Ok(())
+            Ok(())
+        })
     }
 
     /// Records a run's events and moves the ticket on when the run ends.
@@ -198,6 +236,7 @@ impl AgentManager {
         let mut blocked: Option<Option<String>> = None;
         let mut failed = false;
         let mut exit_error = None;
+        let mut undelivered = Vec::new();
         while let Some(event) = events.recv().await {
             match event {
                 AgentEvent::Session(id) => repo::set_session(&self.db, ticket_id, &id, agent).await?,
@@ -215,11 +254,26 @@ impl AgentManager {
                     self.notifier.usage_changed(&repo::get_usage(&self.db).await?);
                 }
                 AgentEvent::Blocked { needs_action } => blocked = Some(needs_action),
+                AgentEvent::Undelivered(text) => undelivered.push(text),
                 AgentEvent::Exited { error } => exit_error = error,
             }
         }
-        if self.runs.lock().unwrap().remove(&ticket_id).is_none() {
+        let Some(active) = self.runs.lock().unwrap().remove(&ticket_id) else {
             return Ok(()); // cancelled or shut down
+        };
+        undelivered.extend(active.queued);
+        if !undelivered.is_empty() {
+            if exit_error.is_none() && !failed {
+                // Messages sent while the agent worked: they are its next turn.
+                let ticket = repo::get_ticket(&self.db, ticket_id).await?;
+                let cwd = repo::get_project(&self.db, ticket.project_id).await?.path;
+                let (prompt, resume) = continuation(&ticket, &undelivered.join("\n\n"));
+                return self.launch(ticket, cwd.into(), prompt, resume).await;
+            }
+            let message = "The agent stopped before it could read your message. \
+                           Send the ticket back to repeat it."
+                .into();
+            self.record(ticket_id, EventData::System { message }).await?;
         }
         let status = if let Some(message) = exit_error {
             self.record(ticket_id, EventData::Error { message }).await?;
@@ -257,6 +311,15 @@ impl AgentManager {
     }
 }
 
+/// Prompt and session for continuing a ticket with `text`.
+fn continuation(ticket: &Ticket, text: &str) -> (String, Option<String>) {
+    match &ticket.agent_session_id {
+        Some(session) => (text.to_string(), Some(session.clone())),
+        // The previous run never got a session: start over with the full task.
+        None => (format!("{}\n\n{text}", ticket.body), None),
+    }
+}
+
 async fn futures_all(receivers: Vec<oneshot::Receiver<()>>) {
     for rx in receivers {
         let _ = rx.await;
@@ -280,6 +343,7 @@ mod tests {
         request: RunRequest,
         events: mpsc::Sender<AgentEvent>,
         cancel: Option<oneshot::Receiver<oneshot::Sender<()>>>,
+        messages: mpsc::UnboundedReceiver<String>,
     }
 
     impl AgentBackend for FakeBackend {
@@ -289,8 +353,16 @@ mod tests {
             }
             let (tx, rx) = mpsc::channel(16);
             let (cancel_tx, cancel_rx) = oneshot::channel();
-            self.runs.lock().unwrap().push(FakeRun { request, events: tx, cancel: Some(cancel_rx) });
-            Ok(Run { events: rx, cancel: cancel_tx })
+            let (messages_tx, messages_rx) = mpsc::unbounded_channel();
+            // Like the real backends: only Claude takes messages mid-turn.
+            let messages = (request.options.agent == "claude").then_some(messages_tx);
+            self.runs.lock().unwrap().push(FakeRun {
+                request,
+                events: tx,
+                cancel: Some(cancel_rx),
+                messages: messages_rx,
+            });
+            Ok(Run { events: rx, cancel: cancel_tx, messages })
         }
     }
 
@@ -474,6 +546,78 @@ mod tests {
                 ("opencode".into(), Some("opencode/big-pickle".into()))
             ]
         );
+    }
+
+    #[tokio::test]
+    async fn messages_reach_a_working_agent_mid_turn() {
+        let e = env().await;
+        let p = e.project().await;
+        let t = e.ready(p, "task").await;
+        e.manager.reply(t, " what are you doing? ").await.unwrap();
+        let received = e.fake.runs.lock().unwrap()[0].messages.try_recv().unwrap();
+        assert_eq!(received, "what are you doing?");
+        let events = repo::list_events(&e.db, t).await.unwrap();
+        assert!(
+            matches!(&events.last().unwrap().data, EventData::UserPrompt { text } if text == "what are you doing?")
+        );
+
+        e.fake.finish(0, vec![text("done")]).await;
+        e.wait_for(t, TicketStatus::Done).await;
+        assert_eq!(e.fake.requests().len(), 1);
+        assert!(e.manager.reply(t, "too late").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn messages_that_miss_the_turn_become_the_next_one() {
+        let e = env().await;
+        let p = e.project().await;
+        let mut settings = repo::get_settings(&e.db).await.unwrap();
+        settings.agent = "opencode".into();
+        repo::save_settings(&e.db, &settings).await.unwrap();
+        let t = e.ready(p, "task").await;
+        e.manager.reply(t, "one").await.unwrap();
+        e.manager.reply(t, "two").await.unwrap();
+        // A message the backend accepted but could no longer pass on.
+        let undelivered = AgentEvent::Undelivered("three".into());
+        e.fake.finish(0, vec![AgentEvent::Session("s-1".into()), undelivered]).await;
+
+        for _ in 0..200 {
+            if e.fake.requests().len() == 2 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        let last = e.fake.requests().pop().unwrap();
+        assert_eq!((last.prompt.as_str(), last.resume.as_deref()), ("three\n\none\n\ntwo", Some("s-1")));
+        assert_eq!(e.status(t).await, TicketStatus::InProgress);
+        let prompts = repo::list_events(&e.db, t)
+            .await
+            .unwrap()
+            .into_iter()
+            .filter(|ev| matches!(ev.data, EventData::UserPrompt { .. }))
+            .count();
+        assert_eq!(prompts, 3, "the queued messages are not recorded twice");
+
+        e.fake.finish(1, vec![text("done")]).await;
+        e.wait_for(t, TicketStatus::Done).await;
+    }
+
+    #[tokio::test]
+    async fn messages_are_dropped_with_a_note_when_the_run_fails() {
+        let e = env().await;
+        let p = e.project().await;
+        let t = e.ready(p, "task").await;
+        let tx = e.fake.runs.lock().unwrap()[0].events.clone();
+        tx.send(AgentEvent::Undelivered("hello?".into())).await.unwrap();
+        tx.send(AgentEvent::Exited { error: Some("crashed".into()) }).await.unwrap();
+        drop(tx);
+        e.fake.runs.lock().unwrap()[0].events = mpsc::channel(1).0;
+        e.wait_for(t, TicketStatus::Done).await;
+        assert_eq!(e.fake.requests().len(), 1);
+        let events = repo::list_events(&e.db, t).await.unwrap();
+        assert!(events.iter().any(
+            |ev| matches!(&ev.data, EventData::System { message } if message.contains("before it could read"))
+        ));
     }
 
     #[tokio::test]

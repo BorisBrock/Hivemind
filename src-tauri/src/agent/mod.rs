@@ -56,6 +56,9 @@ pub enum AgentEvent {
     Blocked {
         needs_action: Option<String>,
     },
+    /// A message sent while the agent was working that it could no longer take in; it
+    /// becomes the prompt of the next turn.
+    Undelivered(String),
     /// The run is over. `error` is set when the agent could not run or crashed.
     Exited {
         error: Option<String>,
@@ -63,10 +66,12 @@ pub enum AgentEvent {
 }
 
 /// Handle to a running agent. Sending on `cancel` stops it; the backend answers on the
-/// enclosed sender once the process tree is gone.
+/// enclosed sender once the process tree is gone. `messages` takes further user messages
+/// while the agent works, if the backend can deliver them mid-turn.
 pub struct Run {
     pub events: mpsc::Receiver<AgentEvent>,
     pub cancel: oneshot::Sender<oneshot::Sender<()>>,
+    pub messages: Option<mpsc::UnboundedSender<String>>,
 }
 
 pub trait AgentBackend: Send + Sync {

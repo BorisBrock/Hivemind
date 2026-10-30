@@ -1,8 +1,10 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import { app, COLUMNS, type TicketDialogState } from "$lib/app.svelte";
+  import { pastedImages } from "$lib/attachments";
   import { confirm } from "$lib/confirm.svelte";
   import { projectColor } from "$lib/theme";
+  import ImageStrip from "./ImageStrip.svelte";
   import Markdown from "./Markdown.svelte";
   import MarkdownEditor from "./MarkdownEditor.svelte";
   import Modal from "./Modal.svelte";
@@ -65,10 +67,13 @@
     if (id !== undefined) untrack(() => app.loadTranscript(id));
   });
 
-  /** Reply to a waiting agent, or the comment when sending a Done ticket back. */
+  /** Reply to a waiting agent, a message to a working one, or the comment when sending a
+   *  Done ticket back. */
   let message = $state("");
   let sending = $state(false);
-  const canMessage = $derived(ticket?.status === "needs_input" || ticket?.status === "done");
+  const canMessage = $derived(
+    ticket?.status === "needs_input" || ticket?.status === "done" || ticket?.status === "in_progress",
+  );
 
   const close = () => (app.ticketDialog = null);
 
@@ -108,6 +113,18 @@
     message = "";
     // A Done ticket sent back to Ready has left the user's hands; get out of the way.
     if (sendingBack) close();
+  }
+
+  /** Pasting an image into the reply inserts a link to it at the cursor. */
+  function pasteIntoMessage(e: ClipboardEvent) {
+    const input = e.currentTarget as HTMLTextAreaElement;
+    const { selectionStart, selectionEnd } = input;
+    pastedImages(e)?.then((text) => {
+      if (!text) return;
+      message = message.slice(0, selectionStart) + text + message.slice(selectionEnd);
+      const cursor = selectionStart + text.length;
+      requestAnimationFrame(() => input.setSelectionRange(cursor, cursor));
+    });
   }
 
   async function cancel() {
@@ -240,10 +257,11 @@
       >
         <MarkdownEditor
           bind:value={body}
-          placeholder="Describe the task for the agent. Markdown is supported."
+          placeholder="Describe the task for the agent. Markdown is supported; paste images with Ctrl+V."
           autofocus={dialog.mode === "view"}
         />
       </div>
+      <ImageStrip text={body} />
     {:else if ticket}
       {#if transcript?.length}
         <div class="min-h-0 flex-1">
@@ -276,8 +294,14 @@
           spellcheck={false}
           placeholder={ticket.status === "needs_input"
             ? "Answer the agent… (Ctrl+Enter to send)"
-            : "Ask for a change; the agent continues in the same session… (Ctrl+Enter to send)"}
-          onkeydown={(e) => e.key === "Enter" && (e.ctrlKey || e.metaKey) && send()}></textarea>
+            : ticket.status === "in_progress"
+              ? ticket.agent === "opencode"
+                ? "Message the agent; it reads it once its current turn ends… (Ctrl+Enter to send)"
+                : 'Message the agent while it works, e.g. "What are you doing right now?" (Ctrl+Enter to send)'
+              : "Ask for a change; the agent continues in the same session… (Ctrl+Enter to send)"}
+          onkeydown={(e) => e.key === "Enter" && (e.ctrlKey || e.metaKey) && send()}
+          onpaste={pasteIntoMessage}></textarea>
+        <ImageStrip text={message} />
       {/if}
     {/if}
 
@@ -357,11 +381,14 @@
         Send reply
       </button>
     {:else if ticket?.status === "in_progress"}
-      <button
-        class="ml-auto rounded-md border border-line px-3 py-1.5 text-danger hover:bg-raised"
-        onclick={cancel}
+      <button class="rounded-md px-3 py-1.5 text-danger hover:bg-raised" onclick={cancel}>Cancel agent</button
       >
-        Cancel agent
+      <button
+        class="ml-auto rounded-md bg-accent px-4 py-1.5 font-medium text-bg disabled:opacity-50"
+        disabled={!message.trim() || sending}
+        onclick={() => send()}
+      >
+        Send message
       </button>
     {/if}
   {/snippet}

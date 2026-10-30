@@ -121,7 +121,7 @@ pub async fn list_ticket_events(db: Db<'_>, ticket_id: i64) -> AppResult<Vec<Tic
     repo::list_events(&db, ticket_id).await
 }
 
-/// Answer for an agent waiting in Needs Input.
+/// Answer for an agent waiting in Needs Input, or a message to one working In Progress.
 #[tauri::command]
 #[specta::specta]
 pub async fn reply_to_ticket(agents: Agents<'_>, id: i64, text: String) -> AppResult<Ticket> {
@@ -237,4 +237,15 @@ pub fn open_in_github_desktop(path: String) -> AppResult<()> {
         .spawn()
         .map_err(|e| crate::error::invalid(format!("Could not open GitHub Desktop: {e}")))?;
     Ok(())
+}
+
+/// Saves a pasted image (base64) in the attachment folder; returns its absolute path.
+#[tauri::command]
+#[specta::specta]
+pub fn save_attachment(
+    attachments: State<'_, crate::attachments::Attachments>,
+    data_base64: String,
+    extension: String,
+) -> AppResult<String> {
+    crate::attachments::save(&attachments.0, &data_base64, &extension)
 }

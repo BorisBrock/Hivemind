@@ -18,9 +18,10 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2.12", features = [] }
+tauri = { version = "2.12", features = ["protocol-asset"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+base64 = "0.22.1"
 sqlx = { version = "0.8.6", default-features = false, features = ["runtime-tokio", "sqlite", "migrate", "macros", "chrono"] }
 tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "sync", "process", "io-util", "time"] }
 chrono = { version = "0.4.45", features = ["serde"] }

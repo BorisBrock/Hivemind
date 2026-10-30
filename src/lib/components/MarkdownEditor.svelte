@@ -6,6 +6,7 @@
   import { indentWithTab } from "@codemirror/commands";
   import { tags } from "@lezer/highlight";
   import { onMount } from "svelte";
+  import { pastedImages } from "$lib/attachments";
 
   let {
     value = $bindable(""),
@@ -54,6 +55,25 @@
         theme,
         EditorView.lineWrapping,
         placeholderExt(placeholder),
+        EditorView.domEventHandlers({
+          paste(e, view) {
+            const at = view.state.selection.main;
+            const links = pastedImages(e);
+            if (!links) return false;
+            links.then((text) => {
+              if (!text) return;
+              // The document may have changed while saving; keep the position within it.
+              const end = Math.min(at.to, view.state.doc.length);
+              const from = Math.min(at.from, end);
+              view.dispatch({
+                changes: { from, to: end, insert: text },
+                selection: { anchor: from + text.length },
+              });
+              view.focus();
+            });
+            return true;
+          },
+        }),
         EditorView.updateListener.of((u) => {
           if (u.docChanged) value = u.state.doc.toString();
         }),

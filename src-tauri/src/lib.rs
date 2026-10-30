@@ -1,4 +1,5 @@
 mod agent;
+mod attachments;
 mod commands;
 mod db;
 mod error;
@@ -50,6 +51,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
             commands::open_folder,
             commands::has_github_desktop,
             commands::open_in_github_desktop,
+            commands::save_attachment,
         ])
         .events(collect_events![events::TicketChanged, events::TicketEventAdded, events::UsageChanged])
         .constant("PALETTE_SIZE", repo::PALETTE_SIZE)
@@ -91,6 +93,8 @@ pub fn run() {
             let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;
             let pool = tauri::async_runtime::block_on(db::open(&dir.join(legacy::DB)))?;
+            let attachments = dir.join(attachments::FOLDER);
+            tauri::async_runtime::block_on(attachments::remove_unused(&pool, &attachments))?;
             let exe = std::env::current_exe()?;
             let backend = Arc::new(agent::Agents {
                 claude: ClaudeBackend::new(&dir, &exe)?,
@@ -103,6 +107,7 @@ pub fn run() {
             tauri::async_runtime::spawn(async move { kick.kick().await });
             app.manage(pool);
             app.manage(agents);
+            app.manage(attachments::Attachments(attachments));
             Ok(())
         })
         .build(tauri::generate_context!())

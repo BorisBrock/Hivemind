@@ -1,6 +1,8 @@
 <script lang="ts">
   import { app, type Ticket } from "$lib/app.svelte";
+  import { confirm } from "$lib/confirm.svelte";
   import { projectColor } from "$lib/theme";
+  import Icon from "./Icon.svelte";
 
   let { ticket }: { ticket: Ticket } = $props();
   const project = $derived(app.projectsById.get(ticket.projectId));
@@ -15,6 +17,19 @@
       .replace(/^([-*+]|\d+\.|>)\s+/, "")
       .replace(/[*_`~]/g, ""),
   );
+  // No agent is attached in these columns, so the ticket can go without cancelling anything.
+  const deletable = $derived(ticket.status === "planning" || ticket.status === "done");
+
+  async function remove(e: Event) {
+    e.stopPropagation();
+    const confirmed = await confirm({
+      title: "Delete ticket",
+      message: `Delete "${ticket.title}"? The ticket and its history are deleted.`,
+      okLabel: "Delete",
+      danger: true,
+    });
+    if (confirmed) await app.deleteTicket(ticket.id);
+  }
 </script>
 
 <div
@@ -37,6 +52,16 @@
       <span class="ml-auto size-2 animate-pulse rounded-full bg-(--project)" title="Agent working"></span>
     {:else if ticket.status === "needs_input"}
       <span class="ml-auto rounded-full bg-accent px-1.5 text-[10px] text-bg">Your turn</span>
+    {:else if deletable}
+      <button
+        class="-my-1 -mr-1 ml-auto rounded p-1 text-muted hover:bg-surface hover:text-danger"
+        title="Delete ticket"
+        aria-label="Delete ticket"
+        onclick={remove}
+        onkeydown={(e) => e.stopPropagation()}
+      >
+        <Icon name="trash" size={14} />
+      </button>
     {/if}
   </div>
   <h3 class="leading-snug font-medium">{ticket.title}</h3>

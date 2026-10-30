@@ -307,6 +307,11 @@ class AppState {
     return updated;
   }
 
+  /** Saves a pasted image; returns its absolute path, or undefined on failure. */
+  async saveAttachment(dataBase64: string, extension: string) {
+    return this.run(() => commands.saveAttachment(dataBase64, extension));
+  }
+
   async cancelTicket(id: number) {
     const updated = await this.run(() => commands.cancelTicket(id));
     if (updated) this.replaceTicket(updated);
