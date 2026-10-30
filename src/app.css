@@ -166,7 +166,7 @@
   --wz-danger: #b91c1c;
 }
 
-/* ---- project colour palettes (10 slots, see PALETTE_SIZE) ----------------- */
+/* ---- project colour palettes (12 slots, see PALETTE_SIZE) ----------------- */
 
 :root,
 [data-palette="vivid"] {
@@ -180,6 +180,8 @@
   --p-7: #9ccc3d;
   --p-8: #ff8a4c;
   --p-9: #8f9bb3;
+  --p-10: #6c6cf0;
+  --p-11: #b8875a;
 }
 
 [data-palette="pastel"] {
@@ -193,6 +195,8 @@
   --p-7: #c7e19a;
   --p-8: #f7bc98;
   --p-9: #bcc3d1;
+  --p-10: #ebe39f;
+  --p-11: #d9bca6;
 }
 
 [data-palette="earth"] {
@@ -206,6 +210,8 @@
   --p-7: #b5653a;
   --p-8: #6b8fa3;
   --p-9: #a8806a;
+  --p-10: #33507a;
+  --p-11: #8c2f39;
 }
 
 [data-palette="neon"] {
@@ -219,6 +225,8 @@
   --p-7: #ff3864;
   --p-8: #3d8bff;
   --p-9: #c6ff00;
+  --p-10: #ffaa00;
+  --p-11: #ff8ad8;
 }
 
 [data-palette="colorblind"] {
@@ -232,6 +240,8 @@
   --p-7: #999999;
   --p-8: #882255;
   --p-9: #44aa99;
+  --p-10: #332288;
+  --p-11: #ddcc77;
 }
 
 /* Text in a project's colour, nudged towards the theme's text colour so it stays readable

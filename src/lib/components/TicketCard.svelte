@@ -27,6 +27,12 @@
 >
   <div class="mb-1 flex items-center gap-1.5 text-[11px] font-medium text-project">
     {project?.name}
+    {#if ticket.parallel}
+      <span
+        class="rounded-full border border-(--project)/40 px-1.5 text-[10px] text-muted"
+        title="Runs in parallel">parallel</span
+      >
+    {/if}
     {#if ticket.status === "in_progress"}
       <span class="ml-auto size-2 animate-pulse rounded-full bg-(--project)" title="Agent working"></span>
     {:else if ticket.status === "needs_input"}

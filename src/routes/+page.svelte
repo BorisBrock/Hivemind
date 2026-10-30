@@ -1,7 +1,9 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { app } from "$lib/app.svelte";
+  import { confirmState } from "$lib/confirm.svelte";
   import Board from "$lib/components/Board.svelte";
+  import ConfirmDialog from "$lib/components/ConfirmDialog.svelte";
   import ProjectDialog from "$lib/components/ProjectDialog.svelte";
   import SettingsDialog from "$lib/components/SettingsDialog.svelte";
   import Sidebar from "$lib/components/Sidebar.svelte";
@@ -58,5 +60,11 @@
 {#if app.ticketDialog}
   {#key app.ticketDialog}
     <TicketDialog dialog={app.ticketDialog} />
+  {/key}
+{/if}
+<!-- Last, so it stacks above any dialog that asked for it. -->
+{#if confirmState.current}
+  {#key confirmState.current}
+    <ConfirmDialog request={confirmState.current} />
   {/key}
 {/if}

@@ -1,11 +1,12 @@
 <script lang="ts">
-  import { ask } from "@tauri-apps/plugin-dialog";
   import { untrack } from "svelte";
   import { app, COLUMNS, type TicketDialogState } from "$lib/app.svelte";
+  import { confirm } from "$lib/confirm.svelte";
   import { projectColor } from "$lib/theme";
   import Markdown from "./Markdown.svelte";
   import MarkdownEditor from "./MarkdownEditor.svelte";
   import Modal from "./Modal.svelte";
+  import PathText from "./PathText.svelte";
   import Transcript from "./Transcript.svelte";
 
   let { dialog }: { dialog: TicketDialogState } = $props();
@@ -24,11 +25,14 @@
   let projectId = $state(initial.ticket?.projectId ?? initial.projectId ?? visibleProjects[0]?.id);
   let title = $state(initial.ticket?.title ?? "");
   let body = $state(initial.ticket?.body ?? "");
+  let parallel = $state(initial.ticket?.parallel ?? false);
 
   const editable = $derived(dialog.mode === "create" || ticket?.status === "planning");
   const project = $derived(projectId !== undefined ? app.projectsById.get(projectId) : undefined);
   const statusLabel = $derived(COLUMNS.find((c) => c.status === ticket?.status)?.label);
-  const dirty = $derived(!!ticket && (title !== ticket.title || body !== ticket.body));
+  const dirty = $derived(
+    !!ticket && (title !== ticket.title || body !== ticket.body || parallel !== ticket.parallel),
+  );
 
   const transcript = $derived(ticket ? app.transcripts[ticket.id] : undefined);
   $effect(() => {
@@ -43,6 +47,30 @@
 
   const close = () => (app.ticketDialog = null);
 
+  /** Anything typed that would be lost by closing without saving. */
+  const unsaved = $derived(
+    (dialog.mode === "create" ? !!(title.trim() || body.trim()) : editable && dirty) || !!message.trim(),
+  );
+
+  /** Asks before discarding unsaved input; true if it's fine to close. */
+  async function confirmDiscard() {
+    if (!unsaved) return true;
+    return confirm({
+      title: "Unsaved changes",
+      message:
+        dialog.mode === "create"
+          ? "Discard this new ticket? What you've written so far is lost."
+          : "Discard your unsaved changes?",
+      okLabel: "Discard",
+      cancelLabel: "Keep editing",
+      danger: true,
+    });
+  }
+
+  async function cancelCreate() {
+    if (await confirmDiscard()) close();
+  }
+
   async function send(text = message) {
     if (!ticket || !text.trim()) return;
     sending = true;
@@ -56,10 +84,13 @@
 
   async function cancel() {
     if (!ticket) return;
-    const confirmed = await ask(
-      `Stop the agent working on "${ticket.title}"? The ticket goes back to Planning; changes the agent already made to files stay.`,
-      { title: "Cancel agent", kind: "warning", okLabel: "Stop agent", cancelLabel: "Keep running" },
-    );
+    const confirmed = await confirm({
+      title: "Cancel agent",
+      message: `Stop the agent working on "${ticket.title}"? The ticket goes back to Planning; changes the agent already made to files stay.`,
+      okLabel: "Stop agent",
+      cancelLabel: "Keep running",
+      danger: true,
+    });
     if (confirmed) await app.cancelTicket(ticket.id);
   }
 
@@ -68,9 +99,9 @@
     let saved;
     if (dialog.mode === "create") {
       if (projectId === undefined) return;
-      saved = await app.createTicket({ projectId, title, body });
+      saved = await app.createTicket({ projectId, title, body, parallel });
     } else if (ticket) {
-      saved = dirty ? await app.updateTicket(ticket.id, { title, body }) : ticket;
+      saved = dirty ? await app.updateTicket(ticket.id, { title, body, parallel }) : ticket;
     }
     if (!saved) return;
     if (sendToReady && !(await app.moveTicket(saved.id, "ready"))) return;
@@ -97,20 +128,31 @@
 
   async function remove(verb: "Delete" | "Close") {
     if (!ticket) return;
-    const confirmed = await ask(`${verb} "${ticket.title}"? The ticket and its history are deleted.`, {
+    const confirmed = await confirm({
       title: `${verb} ticket`,
-      kind: "warning",
+      message: `${verb} "${ticket.title}"? The ticket and its history are deleted.`,
       okLabel: verb,
-      cancelLabel: "Cancel",
+      danger: true,
     });
     if (confirmed && (await app.deleteTicket(ticket.id))) close();
   }
 </script>
 
+{#snippet parallelToggle()}
+  <label
+    class="flex cursor-pointer items-center gap-2 text-sm text-muted select-none hover:text-fg"
+    title="Start as soon as it is Ready, alongside other tickets of this project. Only for tickets that change no files (questions, analysis)."
+  >
+    <input type="checkbox" class="accent-accent" bind:checked={parallel} />
+    Process in parallel
+  </label>
+{/snippet}
+
 <Modal
   title={dialog.mode === "create" ? "New ticket" : (ticket?.title ?? "Ticket")}
   accent={projectColor(project?.colorIndex ?? 9)}
   onclose={close}
+  canclose={confirmDiscard}
   wide
 >
   <!-- Capture phase, so the editor doesn't take Ctrl+Enter for itself. -->
@@ -143,8 +185,7 @@
             </button>
           {/each}
           {#if project}
-            <span class="ml-1 truncate font-mono text-xs text-muted" title={project.path}>{project.path}</span
-            >
+            <PathText path={project.path} class="ml-1 font-mono text-xs text-muted" />
           {/if}
         </div>
       {:else}
@@ -161,6 +202,7 @@
         bind:value={title}
         placeholder="Ticket title"
         aria-label="Title"
+        spellcheck={false}
       />
       <div
         class="min-h-0 flex-1 rounded-lg border border-line bg-raised px-3 focus-within:border-(--project)"
@@ -187,7 +229,11 @@
             <Markdown source={ticket.body} />
           </div>
           {#if ticket.status === "ready"}
-            <p class="mt-3 text-sm text-muted">Waiting for the agent: it starts once the project is free.</p>
+            <p class="mt-3 text-sm text-muted">
+              {ticket.parallel
+                ? "Waiting for the agent: it starts right away, in parallel."
+                : "Waiting for the agent: it starts once the project is free."}
+            </p>
           {/if}
         </section>
       {/if}
@@ -196,6 +242,7 @@
         <textarea
           class="h-24 w-full shrink-0 resize-none rounded-lg border border-line bg-raised p-3 outline-none focus:border-(--project)"
           bind:value={message}
+          spellcheck={false}
           placeholder={ticket.status === "needs_input"
             ? "Answer the agent… (Ctrl+Enter to send)"
             : "Ask for a change; the agent continues in the same session… (Ctrl+Enter to send)"}
@@ -210,7 +257,8 @@
 
   {#snippet footer()}
     {#if dialog.mode === "create"}
-      <button class="ml-auto rounded-md px-3 py-1.5 hover:bg-raised" onclick={close}>Cancel</button>
+      {@render parallelToggle()}
+      <button class="ml-auto rounded-md px-3 py-1.5 hover:bg-raised" onclick={cancelCreate}>Cancel</button>
       <button
         class="rounded-md border border-line px-3 py-1.5 hover:bg-raised"
         title="Ctrl+S"
@@ -229,6 +277,7 @@
       <button class="rounded-md px-3 py-1.5 text-danger hover:bg-raised" onclick={() => remove("Delete")}>
         Delete
       </button>
+      {@render parallelToggle()}
       <button
         class="ml-auto rounded-md border border-line px-3 py-1.5 hover:bg-raised disabled:opacity-50"
         disabled={!dirty}

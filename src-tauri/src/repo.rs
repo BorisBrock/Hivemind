@@ -7,7 +7,7 @@ use crate::error::{AppError, AppResult, invalid};
 use crate::models::*;
 
 /// Number of colour slots every palette provides.
-pub const PALETTE_SIZE: i64 = 10;
+pub const PALETTE_SIZE: i64 = 12;
 
 // ---- projects ---------------------------------------------------------------
 
@@ -126,12 +126,13 @@ pub async fn create_ticket(db: &SqlitePool, new: NewTicket) -> AppResult<Ticket>
     let title = non_empty(&new.title, "title")?;
     let now = Utc::now();
     let id = sqlx::query(
-        "INSERT INTO tickets (project_id, title, body, status, position, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO tickets (project_id, title, body, parallel, status, position, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(new.project_id)
     .bind(title)
     .bind(&new.body)
+    .bind(new.parallel)
     .bind(TicketStatus::Planning)
     .bind(end_of_column(db, TicketStatus::Planning).await?)
     .bind(now)
@@ -142,7 +143,7 @@ pub async fn create_ticket(db: &SqlitePool, new: NewTicket) -> AppResult<Ticket>
     get_ticket(db, id).await
 }
 
-/// The title can always change; the body (the agent's prompt) only in Planning.
+/// The title can always change; the body (the agent's prompt) and `parallel` only in Planning.
 pub async fn update_ticket(db: &SqlitePool, id: i64, patch: TicketPatch) -> AppResult<Ticket> {
     let mut t = get_ticket(db, id).await?;
     if let Some(title) = patch.title {
@@ -154,10 +155,17 @@ pub async fn update_ticket(db: &SqlitePool, id: i64, patch: TicketPatch) -> AppR
         }
         t.body = body;
     }
+    if let Some(parallel) = patch.parallel {
+        if t.status != TicketStatus::Planning && parallel != t.parallel {
+            return Err(AppError::NotEditable);
+        }
+        t.parallel = parallel;
+    }
     t.updated_at = Utc::now();
-    sqlx::query("UPDATE tickets SET title = ?, body = ?, updated_at = ? WHERE id = ?")
+    sqlx::query("UPDATE tickets SET title = ?, body = ?, parallel = ?, updated_at = ? WHERE id = ?")
         .bind(&t.title)
         .bind(&t.body)
+        .bind(t.parallel)
         .bind(t.updated_at)
         .bind(id)
         .execute(db)
@@ -244,37 +252,29 @@ pub struct RunPlan {
     pub resume: Option<String>,
 }
 
-/// Projects that have a Ready ticket and no active one.
-pub async fn idle_projects_with_ready(db: &SqlitePool) -> AppResult<Vec<i64>> {
-    Ok(sqlx::query_scalar(
-        "SELECT DISTINCT project_id FROM tickets t WHERE status = 'ready' AND NOT EXISTS (
-             SELECT 1 FROM tickets a WHERE a.project_id = t.project_id
-             AND a.status IN ('in_progress', 'needs_input'))",
-    )
-    .fetch_all(db)
-    .await?)
+/// A Ready ticket may start if it is parallel, or if no other sequential ticket of its
+/// project is active. Parallel tickets never take the project's sequential slot.
+const STARTABLE: &str = "t.status = 'ready' AND (t.parallel OR NOT EXISTS (
+    SELECT 1 FROM tickets a WHERE a.project_id = t.project_id AND NOT a.parallel
+    AND a.status IN ('in_progress', 'needs_input')))";
+
+/// Projects that have a Ready ticket that may start now.
+pub async fn projects_with_startable(db: &SqlitePool) -> AppResult<Vec<i64>> {
+    Ok(sqlx::query_scalar(&format!("SELECT DISTINCT project_id FROM tickets t WHERE {STARTABLE}"))
+        .fetch_all(db)
+        .await?)
 }
 
-/// Claims the top Ready ticket of an idle project: moves it to In Progress and consumes
-/// its pending prompt. Returns `None` if there is nothing to start.
+/// Claims the top Ready ticket of a project that may start: moves it to In Progress and
+/// consumes its pending prompt. Returns `None` if there is nothing to start.
 pub async fn claim_next_ready(db: &SqlitePool, project_id: i64) -> AppResult<Option<RunPlan>> {
     let mut tx = db.begin().await?;
-    let busy: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM tickets WHERE project_id = ? AND status IN ('in_progress', 'needs_input')",
-    )
+    let next: Option<Ticket> = sqlx::query_as(&format!(
+        "SELECT * FROM tickets t WHERE t.project_id = ? AND {STARTABLE} ORDER BY t.position LIMIT 1"
+    ))
     .bind(project_id)
-    .fetch_one(&mut *tx)
+    .fetch_optional(&mut *tx)
     .await?;
-    let next: Option<Ticket> = if busy > 0 {
-        None
-    } else {
-        sqlx::query_as(
-            "SELECT * FROM tickets WHERE project_id = ? AND status = 'ready' ORDER BY position LIMIT 1",
-        )
-        .bind(project_id)
-        .fetch_optional(&mut *tx)
-        .await?
-    };
     let Some(mut ticket) = next else { return Ok(None) };
     let cwd: String = sqlx::query_scalar("SELECT path FROM projects WHERE id = ?")
         .bind(project_id)
@@ -503,7 +503,12 @@ mod tests {
     }
 
     async fn ticket(db: &SqlitePool, project_id: i64, title: &str) -> Ticket {
-        create_ticket(db, NewTicket { project_id, title: title.into(), body: "do it".into() }).await.unwrap()
+        create_ticket(
+            db,
+            NewTicket { project_id, title: title.into(), body: "do it".into(), parallel: false },
+        )
+        .await
+        .unwrap()
     }
 
     #[tokio::test]
@@ -587,14 +592,38 @@ mod tests {
         let t2 = ticket(&db, p.id, "2").await;
         move_ticket(&db, t1.id, TicketStatus::Ready, None).await.unwrap();
         move_ticket(&db, t2.id, TicketStatus::Ready, None).await.unwrap();
-        assert_eq!(idle_projects_with_ready(&db).await.unwrap(), [p.id]);
+        assert_eq!(projects_with_startable(&db).await.unwrap(), [p.id]);
 
         let plan = claim_next_ready(&db, p.id).await.unwrap().unwrap();
         assert_eq!((plan.ticket.id, plan.prompt.as_str(), plan.resume), (t1.id, "do it", None));
         assert!(claim_next_ready(&db, p.id).await.unwrap().is_none(), "project is busy");
-        assert!(idle_projects_with_ready(&db).await.unwrap().is_empty());
+        assert!(projects_with_startable(&db).await.unwrap().is_empty());
         // The scheduler took it, so the user can no longer drag it back.
         assert!(move_ticket(&db, t1.id, TicketStatus::Planning, None).await.is_err());
+
+        // Parallel tickets start regardless, and don't block the queue.
+        let q = create_ticket(
+            &db,
+            NewTicket { project_id: p.id, title: "q".into(), body: "?".into(), parallel: true },
+        )
+        .await
+        .unwrap();
+        move_ticket(&db, q.id, TicketStatus::Ready, None).await.unwrap();
+        assert_eq!(claim_next_ready(&db, p.id).await.unwrap().unwrap().ticket.id, q.id);
+        set_status(&db, t1.id, TicketStatus::Done).await.unwrap();
+        assert_eq!(claim_next_ready(&db, p.id).await.unwrap().unwrap().ticket.id, t2.id);
+    }
+
+    #[tokio::test]
+    async fn parallel_flag_is_locked_outside_planning() {
+        let db = db::open_in_memory().await.unwrap();
+        let p = project(&db, "p").await;
+        let t = ticket(&db, p.id, "t").await;
+        let patch = |parallel| TicketPatch { parallel: Some(parallel), ..Default::default() };
+        assert!(update_ticket(&db, t.id, patch(true)).await.unwrap().parallel);
+        move_ticket(&db, t.id, TicketStatus::Ready, None).await.unwrap();
+        assert!(matches!(update_ticket(&db, t.id, patch(false)).await, Err(AppError::NotEditable)));
+        assert!(update_ticket(&db, t.id, patch(true)).await.is_ok(), "unchanged value is fine");
     }
 
     #[tokio::test]

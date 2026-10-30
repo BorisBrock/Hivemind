@@ -8,6 +8,7 @@
     accent,
     children,
     footer,
+    canclose,
   }: {
     title: string;
     onclose: () => void;
@@ -16,17 +17,47 @@
     accent?: string;
     children: Snippet;
     footer?: Snippet;
+    /** Asked before closing via Escape, backdrop click or ✕; return false to keep the dialog open. */
+    canclose?: () => boolean | Promise<boolean>;
   } = $props();
 
   let dialog: HTMLDialogElement;
-  $effect(() => dialog.showModal());
+  $effect(() => {
+    dialog.showModal();
+    // Let content pick the initially focused element (otherwise it's the ✕ button).
+    dialog.querySelector<HTMLElement>("[data-autofocus]")?.focus();
+  });
+
+  let asking = false;
+  async function requestClose() {
+    if (asking) return;
+    asking = true;
+    try {
+      if (!canclose || (await canclose())) dialog.close();
+    } finally {
+      asking = false;
+    }
+  }
+
+  function onkeydown(e: KeyboardEvent) {
+    // Handle Escape ourselves: Chromium won't let `cancel` be prevented twice in a row.
+    if (e.key !== "Escape" || !canclose) return;
+    e.preventDefault();
+    requestClose();
+  }
 </script>
 
 <!-- Native <dialog>: focus trapping and Escape-to-close come for free. -->
 <dialog
   bind:this={dialog}
   {onclose}
-  onclick={(e) => e.target === dialog && dialog.close()}
+  {onkeydown}
+  oncancel={(e) => {
+    if (!canclose) return;
+    e.preventDefault();
+    requestClose();
+  }}
+  onclick={(e) => e.target === dialog && requestClose()}
   class="m-auto flex max-h-[90vh] flex-col overflow-hidden rounded-xl border border-line bg-surface p-0 text-fg shadow-2xl backdrop:bg-black/50 backdrop:backdrop-blur-[2px]"
   class:w-[min(1100px,92vw)]={wide}
   class:h-[85vh]={wide}
@@ -37,11 +68,7 @@
   {/if}
   <header class="flex items-center justify-between border-b border-line px-5 py-3">
     <h2 class="text-base font-semibold">{title}</h2>
-    <button
-      class="rounded p-1 text-muted hover:bg-raised hover:text-fg"
-      onclick={() => dialog.close()}
-      title="Close"
-    >
+    <button class="rounded p-1 text-muted hover:bg-raised hover:text-fg" onclick={requestClose} title="Close">
       ✕
     </button>
   </header>

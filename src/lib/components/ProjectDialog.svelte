@@ -1,8 +1,9 @@
 <script lang="ts">
-  import { ask, open } from "@tauri-apps/plugin-dialog";
+  import { open } from "@tauri-apps/plugin-dialog";
   import { untrack } from "svelte";
   import { app, type ProjectDialogState } from "$lib/app.svelte";
   import { PALETTE_SIZE } from "$lib/bindings";
+  import { confirm } from "$lib/confirm.svelte";
   import { projectColor } from "$lib/theme";
   import Modal from "./Modal.svelte";
 
@@ -46,10 +47,12 @@
   async function remove() {
     if (!existing) return;
     const ticketCount = app.tickets.filter((t) => t.projectId === existing.id).length;
-    const confirmed = await ask(
-      `Delete "${existing.name}" and its ${ticketCount} ticket(s)? Files in the folder are not touched.`,
-      { title: "Delete project", kind: "warning", okLabel: "Delete", cancelLabel: "Cancel" },
-    );
+    const confirmed = await confirm({
+      title: "Delete project",
+      message: `Delete "${existing.name}" and its ${ticketCount} ticket(s)? Files in the folder are not touched.`,
+      okLabel: "Delete",
+      danger: true,
+    });
     if (confirmed && (await app.deleteProject(existing.id))) close();
   }
 </script>

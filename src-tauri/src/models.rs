@@ -50,7 +50,7 @@ impl TicketStatus {
         self == to || matches!((self, to), (Planning, Ready) | (Ready, Planning))
     }
 
-    /// The agent is running or waiting for the user; the project's slot is taken.
+    /// The agent is running or waiting for the user.
     pub fn is_active(self) -> bool {
         matches!(self, TicketStatus::InProgress | TicketStatus::NeedsInput)
     }
@@ -65,6 +65,9 @@ pub struct Ticket {
     pub body: String,
     pub status: TicketStatus,
     pub position: f64,
+    /// Runs as soon as it is Ready, alongside the project's sequential queue. Meant for
+    /// tickets that change nothing (questions, analysis).
+    pub parallel: bool,
     pub agent_session_id: Option<String>,
     /// The agent that owns `agent_session_id`.
     pub agent: Option<String>,
@@ -138,6 +141,8 @@ pub struct NewTicket {
     pub project_id: i64,
     pub title: String,
     pub body: String,
+    #[serde(default)]
+    pub parallel: bool,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, specta::Type)]
@@ -145,6 +150,7 @@ pub struct NewTicket {
 pub struct TicketPatch {
     pub title: Option<String>,
     pub body: Option<String>,
+    pub parallel: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]

@@ -64,7 +64,12 @@ async fn env(name: &str, agent: &str) -> Env {
 
 impl Env {
     async fn start(&self, body: &str) -> i64 {
-        let t = NewTicket { project_id: self.project_id, title: "e2e".into(), body: body.into() };
+        let t = NewTicket {
+            project_id: self.project_id,
+            title: "e2e".into(),
+            body: body.into(),
+            parallel: false,
+        };
         let id = repo::create_ticket(&self.db, t).await.unwrap().id;
         repo::move_ticket(&self.db, id, TicketStatus::Ready, None).await.unwrap();
         self.agents.kick().await.unwrap();

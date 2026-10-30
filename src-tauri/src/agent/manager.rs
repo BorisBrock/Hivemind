@@ -1,5 +1,6 @@
-//! Owns every agent-driven ticket transition: starting Ready tickets (one per project),
-//! following a run to its end, user replies, sending back, cancelling and crash recovery.
+//! Owns every agent-driven ticket transition: starting Ready tickets (one sequential ticket
+//! per project, parallel ones right away), following a run to its end, user replies,
+//! sending back, cancelling and crash recovery.
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -30,7 +31,7 @@ pub struct AgentManager {
     /// Cancel handles of running agents, by ticket id. A run that is no longer in here
     /// when it ends was cancelled, and its ticket is no longer its business.
     runs: Mutex<HashMap<i64, oneshot::Sender<oneshot::Sender<()>>>>,
-    /// Serialises scheduling so a project never gets two runs.
+    /// Serialises scheduling so a project never gets two sequential runs.
     schedule: tokio::sync::Mutex<()>,
 }
 
@@ -39,14 +40,15 @@ impl AgentManager {
         Arc::new(Self { db, backend, notifier, runs: Mutex::default(), schedule: Default::default() })
     }
 
-    /// Starts the top Ready ticket of every project that has no active ticket.
+    /// Starts every Ready ticket that may run: all parallel ones, and the top sequential one
+    /// of each project whose sequential slot is free.
     // Boxed with an explicit `Send`: a finished run kicks the scheduler again, and that
     // recursion is more than the compiler can prove `Send` on its own.
     pub fn kick(self: &Arc<Self>) -> Pin<Box<dyn Future<Output = AppResult<()>> + Send + '_>> {
         Box::pin(async move {
             let _guard = self.schedule.lock().await;
-            for project_id in repo::idle_projects_with_ready(&self.db).await? {
-                if let Some(plan) = repo::claim_next_ready(&self.db, project_id).await? {
+            for project_id in repo::projects_with_startable(&self.db).await? {
+                while let Some(plan) = repo::claim_next_ready(&self.db, project_id).await? {
                     self.notifier.ticket_changed(&plan.ticket);
                     self.start(plan.ticket, plan.cwd.into(), plan.prompt, plan.resume).await?;
                 }
@@ -235,8 +237,8 @@ impl AgentManager {
         } else {
             TicketStatus::Done
         };
-        self.set_status(ticket_id, status).await?;
-        if status == TicketStatus::Done {
+        let ticket = self.set_status(ticket_id, status).await?;
+        if status == TicketStatus::Done && !ticket.parallel {
             self.kick().await?; // the project is free for its next ticket
         }
         Ok(())
@@ -338,7 +340,15 @@ mod tests {
         }
 
         async fn ready(&self, project_id: i64, body: &str) -> i64 {
-            let t = NewTicket { project_id, title: body.into(), body: body.into() };
+            self.ready_with(project_id, body, false).await
+        }
+
+        async fn ready_parallel(&self, project_id: i64, body: &str) -> i64 {
+            self.ready_with(project_id, body, true).await
+        }
+
+        async fn ready_with(&self, project_id: i64, body: &str, parallel: bool) -> i64 {
+            let t = NewTicket { project_id, title: body.into(), body: body.into(), parallel };
             let id = repo::create_ticket(&self.db, t).await.unwrap().id;
             repo::move_ticket(&self.db, id, TicketStatus::Ready, None).await.unwrap();
             self.manager.kick().await.unwrap();
@@ -384,6 +394,35 @@ mod tests {
         let prompts: Vec<_> = e.fake.requests().into_iter().map(|r| (r.prompt, r.resume)).collect();
         assert_eq!(prompts, [("a".into(), None), ("c".into(), None), ("b".into(), None)]);
         assert_eq!(repo::get_ticket(&e.db, a).await.unwrap().agent_session_id.as_deref(), Some("s-a"));
+    }
+
+    #[tokio::test]
+    async fn parallel_tickets_run_alongside_the_queue() {
+        let e = env().await;
+        let p = e.project().await;
+        let a = e.ready(p, "a").await;
+        let q1 = e.ready_parallel(p, "q1").await;
+        let b = e.ready(p, "b").await;
+        let q2 = e.ready_parallel(p, "q2").await;
+        assert_eq!(
+            (e.status(a).await, e.status(q1).await, e.status(b).await, e.status(q2).await),
+            (
+                TicketStatus::InProgress,
+                TicketStatus::InProgress,
+                TicketStatus::Ready,
+                TicketStatus::InProgress
+            )
+        );
+
+        // A parallel ticket ending doesn't free the sequential slot…
+        e.fake.finish(1, vec![text("answer")]).await;
+        e.wait_for(q1, TicketStatus::Done).await;
+        assert_eq!(e.status(b).await, TicketStatus::Ready);
+        // …and an active parallel ticket doesn't hold up the queue.
+        e.fake.finish(0, vec![text("done")]).await;
+        e.wait_for(a, TicketStatus::Done).await;
+        e.wait_for(b, TicketStatus::InProgress).await;
+        assert_eq!(e.status(q2).await, TicketStatus::InProgress);
     }
 
     #[tokio::test]

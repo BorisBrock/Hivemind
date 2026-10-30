@@ -13,7 +13,7 @@ export const commands = {
 	reorderProjects: (ids: number[]) => __TAURI_INVOKE<null>("reorder_projects", { ids }),
 	deleteProject: (id: number) => __TAURI_INVOKE<null>("delete_project", { id }),
 	listTickets: () => __TAURI_INVOKE<Ticket_Serialize[]>("list_tickets"),
-	createTicket: (ticket: NewTicket) => __TAURI_INVOKE<Ticket_Serialize>("create_ticket", { ticket }),
+	createTicket: (ticket: NewTicket_Deserialize) => __TAURI_INVOKE<Ticket_Serialize>("create_ticket", { ticket }),
 	updateTicket: (id: number, patch: TicketPatch_Deserialize) => __TAURI_INVOKE<Ticket_Serialize>("update_ticket", { id, patch }),
 	moveTicket: (id: number, to: TicketStatus, beforeId: number | null) => __TAURI_INVOKE<Ticket_Serialize>("move_ticket", { id, to, beforeId }),
 	deleteTicket: (id: number) => __TAURI_INVOKE<null>("delete_ticket", { id }),
@@ -38,7 +38,7 @@ export const events = {
 };
 
 /* Constants */
-export const PALETTE_SIZE = 10 as const;
+export const PALETTE_SIZE = 12 as const;
 
 /* Types */
 /**  Errors returned to the frontend. Serialized as `{ kind, message? | from/to }`. */
@@ -86,10 +86,20 @@ export type NewProject_Serialize = {
 	colorIndex: number | null,
 };
 
-export type NewTicket = {
+export type NewTicket = NewTicket_Serialize | NewTicket_Deserialize;
+
+export type NewTicket_Deserialize = {
 	projectId: number,
 	title: string,
 	body: string,
+	parallel?: boolean,
+};
+
+export type NewTicket_Serialize = {
+	projectId: number,
+	title: string,
+	body: string,
+	parallel: boolean,
 };
 
 export type Project = {
@@ -199,11 +209,13 @@ export type TicketPatch = TicketPatch_Serialize | TicketPatch_Deserialize;
 export type TicketPatch_Deserialize = {
 	title?: string | null,
 	body?: string | null,
+	parallel?: boolean | null,
 };
 
 export type TicketPatch_Serialize = {
 	title: string | null,
 	body: string | null,
+	parallel: boolean | null,
 };
 
 export type TicketStatus = "planning" | "ready" | "in_progress" | "needs_input" | "done";
@@ -215,6 +227,11 @@ export type Ticket_Deserialize = {
 	body: string,
 	status: TicketStatus,
 	position: number | null,
+	/**
+	 *  Runs as soon as it is Ready, alongside the project's sequential queue. Meant for
+	 *  tickets that change nothing (questions, analysis).
+	 */
+	parallel: boolean,
 	agentSessionId?: string | null,
 	/**  The agent that owns `agent_session_id`. */
 	agent?: string | null,
@@ -230,6 +247,11 @@ export type Ticket_Serialize = {
 	body: string,
 	status: TicketStatus,
 	position: number | null,
+	/**
+	 *  Runs as soon as it is Ready, alongside the project's sequential queue. Meant for
+	 *  tickets that change nothing (questions, analysis).
+	 */
+	parallel: boolean,
 	agentSessionId: string | null,
 	/**  The agent that owns `agent_session_id`. */
 	agent: string | null,
