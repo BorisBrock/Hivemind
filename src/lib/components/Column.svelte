@@ -9,6 +9,13 @@
   let { status, label }: { status: TicketStatus; label: string } = $props();
 
   const FLIP_MS = 150;
+  const ICONS = {
+    planning: "list-todo",
+    ready: "circle-play",
+    in_progress: "cog",
+    needs_input: "circle-help",
+    done: "circle-check",
+  } as const satisfies Record<TicketStatus, string>;
   // Only the agent (or the ticket view, for Done) moves tickets out of these columns.
   const locked = $derived(status === "in_progress" || status === "needs_input" || status === "done");
 
@@ -43,8 +50,9 @@
   class="flex w-72 min-w-60 flex-1 flex-col rounded-xl bg-surface/60 transition-opacity"
   class:opacity-40={!accepts}
 >
-  <header class="flex h-10 items-center gap-2 px-3">
-    <h2 class="text-sm font-semibold">{label}</h2>
+  <header class="flex h-12 items-center gap-2 px-3">
+    <span class="shrink-0 text-muted"><Icon name={ICONS[status]} size={18} /></span>
+    <h2 class="truncate text-lg font-bold">{label}</h2>
     <span class="rounded-full bg-raised px-2 text-xs text-muted">{source.length}</span>
     {#if status === "planning"}
       <button
