@@ -17,15 +17,15 @@
       .replace(/^([-*+]|\d+\.|>)\s+/, "")
       .replace(/[*_`~]/g, ""),
   );
-  // No agent is attached in these columns, so the ticket can go without cancelling anything.
-  const deletable = $derived(ticket.status === "planning" || ticket.status === "done");
+  // Finished tickets can be closed straight from the board, like "Close ticket" in the dialog.
+  const closable = $derived(ticket.status === "done");
 
   async function remove(e: Event) {
     e.stopPropagation();
     const confirmed = await confirm({
-      title: "Delete ticket",
-      message: `Delete "${ticket.title}"? The ticket and its history are deleted.`,
-      okLabel: "Delete",
+      title: "Close ticket",
+      message: `Close "${ticket.title}"? The ticket and its history are deleted.`,
+      okLabel: "Close",
       danger: true,
     });
     if (confirmed) await app.deleteTicket(ticket.id);
@@ -37,7 +37,7 @@
   tabindex="0"
   onclick={() => (app.ticketDialog = { mode: "view", ticketId: ticket.id })}
   onkeydown={(e) => e.key === "Enter" && (app.ticketDialog = { mode: "view", ticketId: ticket.id })}
-  class="cursor-pointer rounded-lg border border-line border-l-4 border-l-(--project) bg-[color-mix(in_srgb,var(--project)_8%,var(--wz-raised))] p-3 shadow-sm transition-[translate,box-shadow] hover:-translate-y-px hover:shadow-md"
+  class="group cursor-pointer rounded-lg border border-line border-l-4 border-l-(--project) bg-[color-mix(in_srgb,var(--project)_8%,var(--wz-raised))] p-3 shadow-sm transition-[translate,box-shadow] hover:-translate-y-px hover:shadow-md"
   style:--project={projectColor(project?.colorIndex ?? 9)}
 >
   <div class="mb-1 flex items-center gap-1.5 text-[11px] font-medium text-project">
@@ -52,15 +52,15 @@
       <span class="ml-auto size-2 animate-pulse rounded-full bg-(--project)" title="Agent working"></span>
     {:else if ticket.status === "needs_input"}
       <span class="ml-auto rounded-full bg-accent px-1.5 text-[10px] text-bg">Your turn</span>
-    {:else if deletable}
+    {:else if closable}
       <button
-        class="-my-1 -mr-1 ml-auto rounded p-1 text-muted hover:bg-surface hover:text-danger"
-        title="Delete ticket"
-        aria-label="Delete ticket"
+        class="-my-1 -mr-1 ml-auto rounded p-1 text-muted opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 hover:bg-surface hover:text-danger focus-visible:opacity-100"
+        title="Close ticket"
+        aria-label="Close ticket"
         onclick={remove}
         onkeydown={(e) => e.stopPropagation()}
       >
-        <Icon name="trash" size={14} />
+        <Icon name="x" size={14} />
       </button>
     {/if}
   </div>
