@@ -6,10 +6,13 @@
 
   let {
     events,
+    cwd,
     working = false,
     onoption,
   }: {
     events: TicketEvent[];
+    /** Folder the agent works in; paths in its messages are relative to it. */
+    cwd?: string;
     /** The agent is running; shows a live indicator at the end. */
     working?: boolean;
     /** Clicking an answer option of the agent's open question. */
@@ -50,6 +53,11 @@
     pinned = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 40;
   }
 
+  // Previews load late and push the end of the transcript down.
+  function onloadcapture() {
+    if (pinned) scroller.scrollTo({ top: scroller.scrollHeight });
+  }
+
   const formatTokens = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`);
 </script>
 
@@ -60,7 +68,7 @@
   </div>
 {/snippet}
 
-<div bind:this={scroller} {onscroll} class="h-full space-y-3 overflow-y-auto pr-1">
+<div bind:this={scroller} {onscroll} {onloadcapture} class="h-full space-y-3 overflow-y-auto pr-1">
   {#each items as { event, result } (event.id)}
     {@const d = event.data}
     {#if d.kind === "user_prompt"}
@@ -69,7 +77,7 @@
         <Markdown source={d.text} />
       </div>
     {:else if d.kind === "assistant_text"}
-      <div class="px-1"><Markdown source={d.text} /></div>
+      <div class="px-1"><Markdown source={d.text} {cwd} /></div>
     {:else if d.kind === "thinking"}
       <details class="px-1 text-sm text-muted">
         <summary class="cursor-pointer select-none">Thinking…</summary>
@@ -101,7 +109,7 @@
     {:else if d.kind === "question"}
       <div class="rounded-lg border-2 border-accent/60 bg-accent/10 p-3">
         <div class="mb-1 text-[11px] font-semibold tracking-wider text-accent uppercase">The agent asks</div>
-        <Markdown source={d.question} />
+        <Markdown source={d.question} {cwd} />
         {#if d.options.length}
           <div class="mt-2 flex flex-wrap gap-2">
             {#each d.options as option (option)}

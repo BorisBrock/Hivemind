@@ -350,6 +350,20 @@ body {
   color: var(--wz-accent);
   text-decoration: underline;
 }
+.markdown .file-reveal {
+  display: inline-flex;
+  margin-left: 0.25em;
+  vertical-align: -0.1em;
+  color: var(--wz-muted);
+  cursor: pointer;
+}
+.markdown .file-reveal:hover {
+  color: var(--wz-fg);
+}
+/* Checkerboard, so that transparent images show in any theme. */
+.image-preview {
+  background: repeating-conic-gradient(#bbb 0 25%, #eee 0 50%) 0 0 / 16px 16px;
+}
 .markdown code {
   font-family: var(--font-mono);
   font-size: 0.9em;

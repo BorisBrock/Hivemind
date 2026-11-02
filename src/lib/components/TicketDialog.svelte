@@ -263,6 +263,7 @@
         <div class="min-h-0 flex-1">
           <Transcript
             events={transcript}
+            cwd={app.projects.find((p) => p.id === ticket.projectId)?.path}
             working={ticket.status === "in_progress"}
             onoption={ticket.status === "needs_input" ? send : undefined}
           />

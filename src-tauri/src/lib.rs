@@ -4,6 +4,7 @@ mod commands;
 mod db;
 mod error;
 mod events;
+mod files;
 mod git;
 mod legacy;
 mod models;
@@ -51,6 +52,10 @@ fn specta_builder() -> Builder<tauri::Wry> {
             commands::open_folder,
             commands::has_github_desktop,
             commands::open_in_github_desktop,
+            commands::resolve_files,
+            commands::open_file,
+            commands::reveal_file,
+            commands::open_web_link,
             commands::save_attachment,
         ])
         .events(collect_events![events::TicketChanged, events::TicketEventAdded, events::UsageChanged])

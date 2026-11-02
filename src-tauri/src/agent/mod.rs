@@ -20,7 +20,9 @@ use crate::models::{AgentOptions, EventData, UsageLimits};
 pub const INSTRUCTIONS: &str = "You are running unattended inside Hivemind, a task board. Nobody watches \
 your output live. When you need a decision or information from the user, call the `ask_user` tool \
 with your question (and answer options if useful), then end your turn immediately. Do not ask \
-questions in plain text. When you are done, end with a short summary of what you changed.";
+questions in plain text. When you are done, end with a short summary of what you changed. To show \
+the user a file, name its absolute path in your message: Hivemind links existing files and shows \
+images (also SVG) as a preview below the message.";
 
 /// Tool output beyond this many bytes is cut off in the transcript.
 pub const MAX_TOOL_OUTPUT: usize = 8_000;

@@ -33,6 +33,7 @@ tauri-plugin-dialog = "2"
 command-group = { version = "5.0.1", features = ["with-tokio"] }
 which = "8.0.6"
 tauri-plugin-notification = "2"
+tauri-plugin-opener = "2"
 tauri-plugin-window-state = "2"
 
 

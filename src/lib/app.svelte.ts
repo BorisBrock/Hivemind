@@ -200,6 +200,23 @@ class AppState {
     return this.run(() => commands.openFolder(path));
   }
 
+  /** The existing files among mentioned paths. Links are a nicety, so failures stay quiet. */
+  resolveFiles(cwd: string, mentions: string[]) {
+    return commands.resolveFiles(cwd, mentions).catch(() => []);
+  }
+
+  openFile(path: string) {
+    return this.run(() => commands.openFile(path));
+  }
+
+  revealFile(path: string) {
+    return this.run(() => commands.revealFile(path));
+  }
+
+  openWebLink(url: string) {
+    return this.run(() => commands.openWebLink(url));
+  }
+
   openInGithubDesktop(path: string) {
     return this.run(() => commands.openInGithubDesktop(path));
   }

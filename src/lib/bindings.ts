@@ -47,6 +47,17 @@ export const commands = {
 	 *  Desktop offers to add the repository if it doesn't know it yet.
 	 */
 	openInGithubDesktop: (path: string) => __TAURI_INVOKE<null>("open_in_github_desktop", { path }),
+	/**
+	 *  The existing files among the paths a message mentions, resolved against `cwd`. Their images
+	 *  become loadable for previews.
+	 */
+	resolveFiles: (cwd: string | null, mentions: string[]) => __TAURI_INVOKE<LocalFile[]>("resolve_files", { cwd, mentions }),
+	/**  Opens a file with its default app if its type is safe, else shows it in the file manager. */
+	openFile: (path: string) => __TAURI_INVOKE<null>("open_file", { path }),
+	/**  Shows a file in the file manager. */
+	revealFile: (path: string) => __TAURI_INVOKE<null>("reveal_file", { path }),
+	/**  Opens a web link in the system browser or mail app. */
+	openWebLink: (url: string) => __TAURI_INVOKE<null>("open_web_link", { url }),
 	/**  Saves a pasted image (base64) in the attachment folder; returns its absolute path. */
 	saveAttachment: (dataBase64: string, extension: string) => __TAURI_INVOKE<string>("save_attachment", { dataBase64, extension }),
 };
@@ -101,6 +112,17 @@ export type GroupPatch_Deserialize = {
 export type GroupPatch_Serialize = {
 	name: string | null,
 	collapsed: boolean | null,
+};
+
+/**  A file that a message mentions. */
+export type LocalFile = {
+	/**  The path as the message wrote it. */
+	mention: string,
+	/**  Absolute path. */
+	path: string,
+	isImage: boolean,
+	/**  A click opens it in its default app; otherwise it is shown in the file manager. */
+	canOpen: boolean,
 };
 
 export type NewProject = NewProject_Serialize | NewProject_Deserialize;

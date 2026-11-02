@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use sqlx::SqlitePool;
-use tauri::State;
+use tauri::{Manager, State};
 
 use crate::agent::manager::AgentManager;
 use crate::error::AppResult;
@@ -237,6 +237,52 @@ pub fn open_in_github_desktop(path: String) -> AppResult<()> {
         .spawn()
         .map_err(|e| crate::error::invalid(format!("Could not open GitHub Desktop: {e}")))?;
     Ok(())
+}
+
+/// The existing files among the paths a message mentions, resolved against `cwd`. Their images
+/// become loadable for previews.
+#[tauri::command]
+#[specta::specta]
+pub async fn resolve_files(
+    app: tauri::AppHandle,
+    cwd: Option<String>,
+    mentions: Vec<String>,
+) -> AppResult<Vec<crate::files::LocalFile>> {
+    let cwd = cwd.map(std::path::PathBuf::from);
+    let home = app.path().home_dir().ok();
+    let files: Vec<_> =
+        mentions.iter().filter_map(|m| crate::files::resolve(m, cwd.as_deref(), home.as_deref())).collect();
+    for file in files.iter().filter(|f| f.is_image) {
+        app.asset_protocol_scope()
+            .allow_file(&file.path)
+            .map_err(|e| crate::error::invalid(format!("Could not preview {}: {e}", file.path)))?;
+    }
+    Ok(files)
+}
+
+/// Opens a file with its default app if its type is safe, else shows it in the file manager.
+#[tauri::command]
+#[specta::specta]
+pub async fn open_file(path: String) -> AppResult<()> {
+    crate::files::open(&path)
+}
+
+/// Shows a file in the file manager.
+#[tauri::command]
+#[specta::specta]
+pub async fn reveal_file(path: String) -> AppResult<()> {
+    crate::files::reveal(&path)
+}
+
+/// Opens a web link in the system browser or mail app.
+#[tauri::command]
+#[specta::specta]
+pub fn open_web_link(url: String) -> AppResult<()> {
+    if !crate::files::is_web_url(&url) {
+        return Err(crate::error::invalid(format!("Not a web link: {url}")));
+    }
+    tauri_plugin_opener::open_url(&url, None::<&str>)
+        .map_err(|e| crate::error::invalid(format!("Could not open {url}: {e}")))
 }
 
 /// Saves a pasted image (base64) in the attachment folder; returns its absolute path.

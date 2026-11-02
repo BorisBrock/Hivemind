@@ -14,7 +14,8 @@
     "format": "prettier --write .",
     "lint": "prettier --check . && npm run check",
     "bundle:linux": "tauri build --bundles deb,appimage",
-    "bundle:windows": "tauri build --bundles nsis,msi"
+    "bundle:windows": "tauri build --bundles nsis,msi",
+    "test": "vitest run"
   },
   "license": "MIT",
   "dependencies": {
@@ -43,6 +44,7 @@
     "svelte-check": "^4.6.0",
     "tailwindcss": "^4.3.3",
     "typescript": "~6.0.3",
-    "vite": "^8.0.16"
+    "vite": "^8.0.16",
+    "vitest": "^5.1.0"
   }
 }

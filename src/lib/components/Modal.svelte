@@ -41,7 +41,10 @@
 
   function onkeydown(e: KeyboardEvent) {
     // Handle Escape ourselves: Chromium won't let `cancel` be prevented twice in a row.
-    if (e.key !== "Escape" || !canclose) return;
+    if (e.key !== "Escape") return;
+    // A modal opened from within another must not close that one as well.
+    e.stopPropagation();
+    if (!canclose) return;
     e.preventDefault();
     requestClose();
   }
