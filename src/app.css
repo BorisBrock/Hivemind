@@ -276,6 +276,33 @@ body {
   background-clip: padding-box;
 }
 
+/* ---- code blocks ------------------------------------------------------------ */
+
+.code-block {
+  position: relative;
+}
+.copy-button {
+  position: absolute;
+  top: 0.35rem;
+  right: 0.35rem;
+  display: flex;
+  padding: 0.25rem;
+  color: var(--wz-muted);
+  background: var(--wz-raised);
+  border: 1px solid var(--wz-line);
+  border-radius: 6px;
+  opacity: 0;
+  cursor: pointer;
+}
+.copy-button:hover {
+  color: var(--wz-fg);
+}
+.code-block:hover .copy-button,
+.copy-button:focus-visible,
+.copy-button.shown {
+  opacity: 1;
+}
+
 /* ---- rendered markdown ------------------------------------------------------ */
 
 .markdown {
@@ -329,6 +356,13 @@ body {
   background: var(--wz-surface);
   border-radius: 4px;
   padding: 0.1em 0.35em;
+}
+/* :where keeps this weaker than the first/last-child rules above. */
+:where(.markdown) .code-block {
+  margin: 0.6em 0;
+}
+.markdown .code-block pre {
+  margin: 0;
 }
 .markdown pre {
   background: var(--wz-surface);

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { tick } from "svelte";
   import type { TicketEvent } from "$lib/app.svelte";
+  import CopyButton from "./CopyButton.svelte";
   import Markdown from "./Markdown.svelte";
 
   let {
@@ -52,6 +53,13 @@
   const formatTokens = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`);
 </script>
 
+{#snippet code(text: string, classes: string)}
+  <div class="code-block">
+    <pre class={classes}>{text}</pre>
+    <CopyButton {text} />
+  </div>
+{/snippet}
+
 <div bind:this={scroller} {onscroll} class="h-full space-y-3 overflow-y-auto pr-1">
   {#each items as { event, result } (event.id)}
     {@const d = event.data}
@@ -79,16 +87,17 @@
           {/if}
         </summary>
         <div class="space-y-2 border-t border-line p-3">
-          <pre class="overflow-x-auto font-mono text-xs whitespace-pre-wrap text-muted">{d.input}</pre>
+          {@render code(d.input, "overflow-x-auto font-mono text-xs whitespace-pre-wrap text-muted")}
           {#if result}
-            <pre
-              class="max-h-64 overflow-auto rounded bg-surface p-2 font-mono text-xs whitespace-pre-wrap"
-              class:text-danger={result.isError}>{result.content || "(no output)"}</pre>
+            {@render code(
+              result.content || "(no output)",
+              `max-h-64 overflow-auto rounded bg-surface p-2 font-mono text-xs whitespace-pre-wrap ${result.isError ? "text-danger" : ""}`,
+            )}
           {/if}
         </div>
       </details>
     {:else if d.kind === "tool_result"}
-      <pre class="rounded bg-raised p-2 font-mono text-xs whitespace-pre-wrap">{d.content}</pre>
+      {@render code(d.content, "rounded bg-raised p-2 font-mono text-xs whitespace-pre-wrap")}
     {:else if d.kind === "question"}
       <div class="rounded-lg border-2 border-accent/60 bg-accent/10 p-3">
         <div class="mb-1 text-[11px] font-semibold tracking-wider text-accent uppercase">The agent asks</div>
@@ -118,7 +127,7 @@
     {:else if d.kind === "error"}
       <div class="rounded-lg border border-danger/50 bg-danger/10 p-3 text-sm">
         <div class="mb-1 text-[11px] font-semibold tracking-wider text-danger uppercase">Error</div>
-        <pre class="font-mono text-xs whitespace-pre-wrap">{d.message}</pre>
+        {@render code(d.message, "font-mono text-xs whitespace-pre-wrap")}
       </div>
     {:else if d.kind === "system"}
       <div class="text-center text-xs text-muted">{d.message}</div>

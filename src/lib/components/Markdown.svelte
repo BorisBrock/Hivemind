@@ -1,6 +1,8 @@
 <script lang="ts">
+  import { mount, unmount } from "svelte";
   import MarkdownIt from "markdown-it";
   import { imageUrl } from "$lib/attachments";
+  import CopyButton from "./CopyButton.svelte";
 
   let { source }: { source: string } = $props();
 
@@ -15,9 +17,24 @@
     if (url !== src) token.attrSet("src", url);
     return renderImage(tokens, idx, options, env, self);
   };
+  // Code blocks get a wrapper, so their copy button stays in place when the code scrolls.
+  for (const rule of ["fence", "code_block"] as const) {
+    const renderCode = md.renderer.rules[rule]!;
+    md.renderer.rules[rule] = (...args) => `<div class="code-block">${renderCode(...args)}</div>`;
+  }
   const rendered = $derived(md.render(source));
+
+  let container: HTMLDivElement;
+  $effect(() => {
+    void rendered;
+    const buttons = [...container.querySelectorAll(".code-block")].map((block) => {
+      const text = block.querySelector("pre")!.textContent.replace(/\n$/, "");
+      return mount(CopyButton, { target: block, props: { text } });
+    });
+    return () => buttons.forEach((button) => unmount(button));
+  });
 </script>
 
-<div class="markdown">
+<div bind:this={container} class="markdown">
   {@html rendered}
 </div>
