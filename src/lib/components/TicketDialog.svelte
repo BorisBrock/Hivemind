@@ -172,15 +172,20 @@
     if (ticket && (await app.moveTicket(ticket.id, to))) close();
   }
 
-  async function remove(verb: "Delete" | "Close") {
+  async function remove() {
     if (!ticket) return;
     const confirmed = await confirm({
-      title: `${verb} ticket`,
-      message: `${verb} "${ticket.title}"? The ticket and its history are deleted.`,
-      okLabel: verb,
+      title: "Delete ticket",
+      message: `Delete "${ticket.title}"? The ticket and its history are deleted.`,
+      okLabel: "Delete",
       danger: true,
     });
     if (confirmed && (await app.deleteTicket(ticket.id))) close();
+  }
+
+  /** Closing a finished ticket needs no confirmation, only a typed comment is worth asking about. */
+  async function closeTicket() {
+    if (ticket && (await confirmDiscard()) && (await app.deleteTicket(ticket.id))) close();
   }
 </script>
 
@@ -326,9 +331,7 @@
         Create &amp; send to Ready
       </button>
     {:else if ticket?.status === "planning"}
-      <button class="rounded-md px-3 py-1.5 text-danger hover:bg-raised" onclick={() => remove("Delete")}>
-        Delete
-      </button>
+      <button class="rounded-md px-3 py-1.5 text-danger hover:bg-raised" onclick={remove}> Delete </button>
       {@render parallelToggle()}
       <button
         class="ml-auto rounded-md border border-line px-3 py-1.5 hover:bg-raised disabled:opacity-50"
@@ -346,9 +349,7 @@
         Send to Ready
       </button>
     {:else if ticket?.status === "ready"}
-      <button class="rounded-md px-3 py-1.5 text-danger hover:bg-raised" onclick={() => remove("Delete")}>
-        Delete
-      </button>
+      <button class="rounded-md px-3 py-1.5 text-danger hover:bg-raised" onclick={remove}> Delete </button>
       <button
         class="ml-auto rounded-md border border-line px-3 py-1.5 hover:bg-raised"
         onclick={() => move("planning")}
@@ -364,7 +365,7 @@
       >
         Send back to Ready
       </button>
-      <button class="rounded-md bg-accent px-4 py-1.5 font-medium text-bg" onclick={() => remove("Close")}>
+      <button class="rounded-md bg-accent px-4 py-1.5 font-medium text-bg" onclick={closeTicket}>
         Close ticket
       </button>
     {:else if ticket?.status === "needs_input"}

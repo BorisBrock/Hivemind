@@ -1,6 +1,5 @@
 <script lang="ts">
   import { app, type Ticket } from "$lib/app.svelte";
-  import { confirm } from "$lib/confirm.svelte";
   import { projectColor } from "$lib/theme";
   import Icon from "./Icon.svelte";
 
@@ -22,13 +21,7 @@
 
   async function remove(e: Event) {
     e.stopPropagation();
-    const confirmed = await confirm({
-      title: "Close ticket",
-      message: `Close "${ticket.title}"? The ticket and its history are deleted.`,
-      okLabel: "Close",
-      danger: true,
-    });
-    if (confirmed) await app.deleteTicket(ticket.id);
+    await app.deleteTicket(ticket.id);
   }
 </script>
 
