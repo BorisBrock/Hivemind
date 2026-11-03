@@ -5,3 +5,4 @@ package-lock.json
 src-tauri
 src/lib/bindings.ts
 *.md
+.release

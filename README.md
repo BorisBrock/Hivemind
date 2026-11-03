@@ -48,6 +48,19 @@ To build a release binary without installers and start it, use the scripts in th
 `build.bat` / `run.bat` on Windows, `./build.sh` / `./run.sh` on Linux. `run` builds first if there
 is no binary yet; after code changes, run `build` again.
 
+## Building a release
+
+`release.bat` (Windows) and `./release.sh` (Linux) build a release and put it into `.release/`:
+
+| Platform | Files |
+|---|---|
+| Windows | `Hivemind-<version>-windows-<arch>.exe` (portable, runs without installation) and a `.zip` with the executable and this README |
+| Linux | `Hivemind-<version>-linux-<arch>.AppImage` (portable, bundles its libraries) and a `.tar.gz` with the bare binary and this README (needs WebKitGTK installed) |
+
+Pass `--installers` to also build the installers and copy them there (NSIS `.exe` and `.msi` on
+Windows, `.deb` on Linux). The version comes from `src-tauri/tauri.conf.json`. Close Hivemind before
+building, because the build overwrites `src-tauri/target/release/hivemind(.exe)`.
+
 ## Building installers
 
 Run on the platform you are building for (Windows installers can only be built on Windows):
