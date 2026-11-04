@@ -81,7 +81,10 @@
     {:else if d.kind === "thinking"}
       <details class="px-1 text-sm text-muted">
         <summary class="cursor-pointer select-none">Thinking…</summary>
-        <div class="mt-1 border-l-2 border-line pl-3 whitespace-pre-wrap">{d.text}</div>
+        <div class="code-block mt-1">
+          <div class="border-l-2 border-line pr-8 pl-3 whitespace-pre-wrap">{d.text}</div>
+          <CopyButton text={d.text} />
+        </div>
       </details>
     {:else if d.kind === "tool_use"}
       <details class="group rounded-md border border-line bg-raised text-sm">

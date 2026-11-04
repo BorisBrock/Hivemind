@@ -36,6 +36,25 @@
     const renderCode = md.renderer.rules[rule]!;
     md.renderer.rules[rule] = (...args) => `<div class="code-block">${renderCode(...args)}</div>`;
   }
+  // Quotes get a wrapper too, carrying their Markdown without the "> " markers for copying.
+  type RenderEnv = FileEnv & { source?: string };
+  md.renderer.rules.blockquote_open = (tokens, idx, options, env, self) => {
+    const lines = tokens[idx].map;
+    const source = (env as RenderEnv | undefined)?.source;
+    const text =
+      lines && source !== undefined
+        ? source
+            .split(/\r?\n/)
+            .slice(...lines)
+            .map((line) => line.replace(/^\s*>\s?/, ""))
+            .join("\n")
+            .trim()
+        : undefined;
+    const copy = text === undefined ? "" : ` data-copy="${md.utils.escapeHtml(text)}"`;
+    return `<div class="quote-block"${copy}>${self.renderToken(tokens, idx, options)}`;
+  };
+  md.renderer.rules.blockquote_close = (tokens, idx, options, _env, self) =>
+    `${self.renderToken(tokens, idx, options)}</div>`;
 
   const mentions = $derived.by(() => {
     if (!cwd) return [];
@@ -56,7 +75,7 @@
   });
 
   const rendered = $derived.by(() => {
-    const env: FileEnv = cwd ? { files, inlineImages: new Set() } : {};
+    const env: RenderEnv = cwd ? { files, inlineImages: new Set(), source } : { source };
     const html = md.render(source, env);
     const images = new Map([...files.values()].filter((f) => f.isImage).map((f) => [f.path, f]));
     // A Markdown image already shows in the text.
@@ -72,6 +91,10 @@
         const text = block.querySelector("pre")!.textContent.replace(/\n$/, "");
         return mount(CopyButton, { target: block, props: { text } });
       }),
+      // A nested quote is copied along with its outer one.
+      ...[...container.querySelectorAll<HTMLElement>(".quote-block[data-copy]")]
+        .filter((block) => !block.parentElement?.closest(".quote-block"))
+        .map((block) => mount(CopyButton, { target: block, props: { text: block.dataset.copy! } })),
       ...[...container.querySelectorAll(".file-reveal")].map((target) =>
         mount(Icon, { target, props: { name: "folder", size: 13 } }),
       ),
