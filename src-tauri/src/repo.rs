@@ -389,13 +389,20 @@ pub async fn claim_next_ready(db: &SqlitePool, project_id: i64) -> AppResult<Opt
 }
 
 /// Status change made by the agent manager (not subject to the user's move rules).
+/// A ticket entering another column goes to its bottom, e.g. a finished ticket below older Done ones.
 pub async fn set_status(db: &SqlitePool, id: i64, status: TicketStatus) -> AppResult<Ticket> {
-    sqlx::query("UPDATE tickets SET status = ?, updated_at = ? WHERE id = ?")
-        .bind(status)
-        .bind(Utc::now())
-        .bind(id)
-        .execute(db)
-        .await?;
+    sqlx::query(
+        "UPDATE tickets SET
+           position = CASE WHEN status = ?1 THEN position
+             ELSE (SELECT COALESCE(MAX(position) + 1, 0) FROM tickets WHERE status = ?1) END,
+           status = ?1, updated_at = ?2
+         WHERE id = ?3",
+    )
+    .bind(status)
+    .bind(Utc::now())
+    .bind(id)
+    .execute(db)
+    .await?;
     get_ticket(db, id).await
 }
 
