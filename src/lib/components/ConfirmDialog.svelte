@@ -14,6 +14,7 @@
   const kind = $derived(kinds[request.kind ?? (request.danger ? "warning" : "question")]);
 
   let dialog: HTMLDialogElement;
+  let pressedOnBackdrop = false;
   $effect(() => {
     dialog.showModal();
     dialog.querySelector<HTMLElement>("[data-autofocus]")?.focus();
@@ -24,7 +25,12 @@
 <dialog
   bind:this={dialog}
   onclose={() => request.resolve(false)}
-  onclick={(e) => e.target === dialog && dialog.close()}
+  onpointerdown={(e) => (pressedOnBackdrop = e.target === dialog)}
+  onclick={(e) => {
+    // Ignore drags that start inside the dialog and end on the backdrop.
+    if (e.target === dialog && pressedOnBackdrop) dialog.close();
+    pressedOnBackdrop = false;
+  }}
   class="m-auto w-[min(460px,92vw)] overflow-hidden rounded-2xl border border-line bg-surface p-0 text-fg shadow-2xl backdrop:bg-black/50 backdrop:backdrop-blur-[2px]"
 >
   <div class="flex gap-4 px-6 pt-6 pb-5">

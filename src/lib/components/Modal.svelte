@@ -28,6 +28,7 @@
     dialog.querySelector<HTMLElement>("[data-autofocus]")?.focus();
   });
 
+  let pressedOnBackdrop = false;
   let asking = false;
   async function requestClose() {
     if (asking) return;
@@ -60,7 +61,13 @@
     e.preventDefault();
     requestClose();
   }}
-  onclick={(e) => e.target === dialog && requestClose()}
+  onpointerdown={(e) => (pressedOnBackdrop = e.target === dialog)}
+  onclick={(e) => {
+    // A drag that starts inside (e.g. selecting text) and ends on the backdrop also
+    // fires `click` on the dialog, so require the press to have started there too.
+    if (e.target === dialog && pressedOnBackdrop) requestClose();
+    pressedOnBackdrop = false;
+  }}
   class="m-auto flex max-h-[90vh] flex-col overflow-hidden rounded-xl border border-line bg-surface p-0 text-fg shadow-2xl backdrop:bg-black/50 backdrop:backdrop-blur-[2px]"
   class:w-[min(1100px,92vw)]={wide}
   class:h-[85vh]={wide}
