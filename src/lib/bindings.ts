@@ -24,6 +24,13 @@ export const commands = {
 	updateTicket: (id: number, patch: TicketPatch_Deserialize) => __TAURI_INVOKE<Ticket_Serialize>("update_ticket", { id, patch }),
 	moveTicket: (id: number, to: TicketStatus, beforeId: number | null) => __TAURI_INVOKE<Ticket_Serialize>("move_ticket", { id, to, beforeId }),
 	deleteTicket: (id: number) => __TAURI_INVOKE<null>("delete_ticket", { id }),
+	listTrashedTickets: () => __TAURI_INVOKE<Ticket_Serialize[]>("list_trashed_tickets"),
+	/**  Moves a ticket off the board and into the trash. */
+	trashTicket: (id: number) => __TAURI_INVOKE<Ticket_Serialize>("trash_ticket", { id }),
+	/**  Permanently deletes every ticket in the trash; returns how many. */
+	emptyTrash: () => __TAURI_INVOKE<number>("empty_trash"),
+	/**  Out of the trash, back to Planning. */
+	restoreTicket: (id: number) => __TAURI_INVOKE<Ticket_Serialize>("restore_ticket", { id }),
 	listTicketEvents: (ticketId: number) => __TAURI_INVOKE<TicketEvent_Serialize[]>("list_ticket_events", { ticketId }),
 	/**  Answer for an agent waiting in Needs Input, or a message to one working In Progress. */
 	replyToTicket: (id: number, text: string) => __TAURI_INVOKE<Ticket_Serialize>("reply_to_ticket", { id, text }),
@@ -338,6 +345,8 @@ export type Ticket_Deserialize = {
 	pendingPrompt?: string | null,
 	createdAt: string,
 	updatedAt: string,
+	/**  When the ticket was closed and moved to the trash; `None` while it is on the board. */
+	archivedAt?: string | null,
 };
 
 export type Ticket_Serialize = {
@@ -358,6 +367,8 @@ export type Ticket_Serialize = {
 	pendingPrompt: string | null,
 	createdAt: string,
 	updatedAt: string,
+	/**  When the ticket was closed and moved to the trash; `None` while it is on the board. */
+	archivedAt: string | null,
 };
 
 /**  What the status bar shows. */

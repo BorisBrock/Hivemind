@@ -149,6 +149,33 @@ pub async fn delete_ticket(db: Db<'_>, id: i64) -> AppResult<()> {
 
 #[tauri::command]
 #[specta::specta]
+pub async fn list_trashed_tickets(db: Db<'_>) -> AppResult<Vec<Ticket>> {
+    repo::list_trashed_tickets(&db).await
+}
+
+/// Permanently deletes every ticket in the trash; returns how many.
+#[tauri::command]
+#[specta::specta]
+pub async fn empty_trash(db: Db<'_>) -> AppResult<u32> {
+    Ok(repo::empty_trash(&db).await? as u32)
+}
+
+/// Moves a ticket off the board and into the trash.
+#[tauri::command]
+#[specta::specta]
+pub async fn trash_ticket(db: Db<'_>, id: i64) -> AppResult<Ticket> {
+    repo::trash_ticket(&db, id).await
+}
+
+/// Out of the trash, back to Planning.
+#[tauri::command]
+#[specta::specta]
+pub async fn restore_ticket(db: Db<'_>, id: i64) -> AppResult<Ticket> {
+    repo::restore_ticket(&db, id).await
+}
+
+#[tauri::command]
+#[specta::specta]
 pub async fn get_usage(db: Db<'_>) -> AppResult<Usage> {
     repo::get_usage(&db).await
 }

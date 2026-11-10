@@ -37,6 +37,25 @@ export function userCanMove(from: TicketStatus, to: TicketStatus) {
   return from === to || (from === "planning" && to === "ready") || (from === "ready" && to === "planning");
 }
 
+/** First non-heading line of a ticket's prompt, without markdown syntax, as a card preview. */
+export function ticketPreview(body: string) {
+  return (
+    body
+      .split("\n")
+      .map((l) => l.trim())
+      .find((l) => l && !l.startsWith("#")) ?? ""
+  )
+    .replace(/^([-*+]|\d+\.|>)\s+/, "")
+    .replace(/[*_`~]/g, "");
+}
+
+/** Whether every word of `search` occurs in the ticket's title, prompt or project name. */
+export function ticketMatches(ticket: Ticket, projectName: string, search: string) {
+  const words = search.toLowerCase().split(/\s+/).filter(Boolean);
+  const text = `${ticket.title}\n${ticket.body}\n${projectName}`.toLowerCase();
+  return words.every((w) => text.includes(w));
+}
+
 export function errorMessage(e: unknown): string {
   if (typeof e === "object" && e && "kind" in e) {
     const err = e as AppError;
@@ -65,6 +84,8 @@ class AppState {
   /** Project groups in sidebar order. */
   groups = $state<ProjectGroup[]>([]);
   tickets = $state<Ticket[]>([]);
+  /** Closed tickets, most recently closed first. Kept off the board until restored or deleted. */
+  trash = $state<Ticket[]>([]);
   settings = $state<Settings>({
     theme: "midnight",
     palette: "vivid",
@@ -81,6 +102,7 @@ class AppState {
   /** Whether branches can be clicked to open the repository in GitHub Desktop. */
   hasGithubDesktop = $state(false);
   settingsOpen = $state(false);
+  trashOpen = $state(false);
   error = $state<string | null>(null);
 
   projectDialog = $state<ProjectDialogState | null>(null);
@@ -103,12 +125,10 @@ class AppState {
   /** Tickets of visible projects, grouped by column, in board order. */
   columns = $derived.by(() => {
     const byStatus = new Map<TicketStatus, Ticket[]>(COLUMNS.map((c) => [c.status, []]));
-    const words = this.search.toLowerCase().split(/\s+/).filter(Boolean);
     for (const t of this.tickets) {
       const project = this.projectsById.get(t.projectId);
       if (project?.hidden) continue;
-      const text = `${t.title}\n${t.body}\n${project?.name ?? ""}`.toLowerCase();
-      if (words.every((w) => text.includes(w))) byStatus.get(t.status)?.push(t);
+      if (ticketMatches(t, project?.name ?? "", this.search)) byStatus.get(t.status)?.push(t);
     }
     for (const list of byStatus.values()) list.sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
     return byStatus;
@@ -122,11 +142,12 @@ class AppState {
       await this.run(() => this.listen());
     }
     await this.run(async () => {
-      [this.settings, this.projects, this.groups, this.tickets, this.usage] = await Promise.all([
+      [this.settings, this.projects, this.groups, this.tickets, this.trash, this.usage] = await Promise.all([
         commands.getSettings(),
         commands.listProjects(),
         commands.listGroups(),
         commands.listTickets(),
+        commands.listTrashedTickets(),
         commands.getUsage(),
       ]);
       applyAppearance(this.settings.theme, this.settings.palette);
@@ -241,6 +262,7 @@ class AppState {
     if (ok === undefined) return false;
     this.projects = this.projects.filter((p) => p.id !== id);
     this.tickets = this.tickets.filter((t) => t.projectId !== id);
+    this.trash = this.trash.filter((t) => t.projectId !== id);
     return true;
   }
 
@@ -335,11 +357,39 @@ class AppState {
     return updated;
   }
 
+  /** Permanently deletes a ticket in the trash, with its transcript. */
   async deleteTicket(id: number) {
     const ok = await this.run(() => commands.deleteTicket(id));
     if (ok === undefined) return false;
-    this.tickets = this.tickets.filter((t) => t.id !== id);
+    this.trash = this.trash.filter((t) => t.id !== id);
     delete this.transcripts[id];
+    return true;
+  }
+
+  /** Permanently deletes every ticket in the trash. */
+  async emptyTrash() {
+    const ok = await this.run(() => commands.emptyTrash());
+    if (ok === undefined) return false;
+    for (const t of this.trash) delete this.transcripts[t.id];
+    this.trash = [];
+    return true;
+  }
+
+  /** Moves a ticket from the board to the trash (deleting or closing it). */
+  async trashTicket(id: number) {
+    const trashed = await this.run(() => commands.trashTicket(id));
+    if (!trashed) return false;
+    this.tickets = this.tickets.filter((t) => t.id !== id);
+    this.trash = [trashed, ...this.trash.filter((t) => t.id !== id)];
+    return true;
+  }
+
+  /** Takes a ticket out of the trash and puts it at the bottom of Planning. */
+  async restoreTicket(id: number) {
+    const restored = await this.run(() => commands.restoreTicket(id));
+    if (!restored) return false;
+    this.trash = this.trash.filter((t) => t.id !== id);
+    this.tickets = [...this.tickets, restored];
     return true;
   }
 

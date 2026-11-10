@@ -116,6 +116,8 @@ pub struct Ticket {
     pub pending_prompt: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    /// When the ticket was closed and moved to the trash; `None` while it is on the board.
+    pub archived_at: Option<DateTime<Utc>>,
 }
 
 /// One entry of a ticket's transcript.

@@ -72,12 +72,17 @@
   {#each items as { event, result } (event.id)}
     {@const d = event.data}
     {#if d.kind === "user_prompt"}
-      <div class="rounded-lg border border-(--project)/40 bg-(--project)/8 p-3">
+      <div class="message-block rounded-lg border border-(--project)/40 bg-(--project)/8 p-3">
         <div class="mb-1 text-[11px] font-semibold tracking-wider text-project uppercase">You</div>
         <Markdown source={d.text} />
+        <CopyButton text={d.text} />
       </div>
     {:else if d.kind === "assistant_text"}
-      <div class="px-1"><Markdown source={d.text} {cwd} /></div>
+      <!-- Right padding keeps the first line clear of the copy button. -->
+      <div class="message-block pr-8 pl-1">
+        <Markdown source={d.text} {cwd} />
+        <CopyButton text={d.text} />
+      </div>
     {:else if d.kind === "thinking"}
       <details class="px-1 text-sm text-muted">
         <summary class="cursor-pointer select-none">Thinking…</summary>
@@ -110,7 +115,7 @@
     {:else if d.kind === "tool_result"}
       {@render code(d.content, "rounded bg-raised p-2 font-mono text-xs whitespace-pre-wrap")}
     {:else if d.kind === "question"}
-      <div class="rounded-lg border-2 border-accent/60 bg-accent/10 p-3">
+      <div class="message-block rounded-lg border-2 border-accent/60 bg-accent/10 p-3">
         <div class="mb-1 text-[11px] font-semibold tracking-wider text-accent uppercase">The agent asks</div>
         <Markdown source={d.question} {cwd} />
         {#if d.options.length}
@@ -126,6 +131,7 @@
             {/each}
           </div>
         {/if}
+        <CopyButton text={d.question} />
       </div>
     {:else if d.kind === "turn_result"}
       <div class="flex items-center gap-3 text-[11px] text-muted" class:text-danger={d.isError}>

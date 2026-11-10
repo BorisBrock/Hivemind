@@ -56,6 +56,14 @@
 
   <button
     class="ml-auto flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-raised hover:text-fg"
+    title="Deleted and closed tickets"
+    onclick={() => (app.trashOpen = true)}
+  >
+    <Icon name="trash" size={13} /> Trash
+    {#if app.trash.length}<span class="rounded-full bg-raised px-1.5">{app.trash.length}</span>{/if}
+  </button>
+  <button
+    class="flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-raised hover:text-fg"
     title="Settings"
     onclick={() => (app.settingsOpen = true)}
   >

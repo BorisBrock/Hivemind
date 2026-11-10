@@ -279,7 +279,8 @@ body {
 /* ---- code blocks ------------------------------------------------------------ */
 
 .code-block,
-.quote-block {
+.quote-block,
+.message-block {
   position: relative;
 }
 .copy-button {
@@ -300,6 +301,8 @@ body {
 }
 .code-block:hover .copy-button,
 .quote-block:hover > .copy-button,
+/* Whole messages: only their own button, not those of code blocks inside them. */
+.message-block:hover > .copy-button,
 .copy-button:focus-visible,
 .copy-button.shown {
   opacity: 1;

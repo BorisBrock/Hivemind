@@ -10,6 +10,7 @@
   import Sidebar from "$lib/components/Sidebar.svelte";
   import StatusBar from "$lib/components/StatusBar.svelte";
   import TicketDialog from "$lib/components/TicketDialog.svelte";
+  import TrashDialog from "$lib/components/TrashDialog.svelte";
 
   onMount(() => app.load());
 
@@ -50,7 +51,7 @@
   }
 
   const dialogOpen = $derived(
-    !!(app.settingsOpen || app.projectDialog || app.groupDialog || app.ticketDialog),
+    !!(app.settingsOpen || app.trashOpen || app.projectDialog || app.groupDialog || app.ticketDialog),
   );
 
   /** Global shortcuts; plain keys only when not typing somewhere. */
@@ -117,6 +118,9 @@
 
 {#if app.settingsOpen}
   <SettingsDialog />
+{/if}
+{#if app.trashOpen}
+  <TrashDialog />
 {/if}
 {#if app.projectDialog}
   <ProjectDialog dialog={app.projectDialog} />

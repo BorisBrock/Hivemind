@@ -4,6 +4,7 @@
   import { pastedImages } from "$lib/attachments";
   import { confirm } from "$lib/confirm.svelte";
   import { projectColor } from "$lib/theme";
+  import CopyButton from "./CopyButton.svelte";
   import ImageStrip from "./ImageStrip.svelte";
   import Markdown from "./Markdown.svelte";
   import MarkdownEditor from "./MarkdownEditor.svelte";
@@ -13,14 +14,16 @@
   let { dialog }: { dialog: TicketDialogState } = $props();
 
   app.error = null;
-  const ticket = $derived(
-    dialog.mode === "view" ? app.tickets.find((t) => t.id === dialog.ticketId) : undefined,
-  );
+  /** Board tickets and, opened from the trash, trashed ones (read-only). */
+  const findTicket = (id: number) =>
+    app.tickets.find((t) => t.id === id) ?? app.trash.find((t) => t.id === id);
+  const ticket = $derived(dialog.mode === "view" ? findTicket(dialog.ticketId) : undefined);
+  const trashed = $derived(!!ticket?.archivedAt);
   const visibleProjects = app.projects.filter((p) => !p.hidden);
 
   // Draft values, seeded once from the ticket (or defaults for a new one).
   const initial = untrack(() => ({
-    ticket: dialog.mode === "view" ? app.tickets.find((t) => t.id === dialog.ticketId) : undefined,
+    ticket: dialog.mode === "view" ? findTicket(dialog.ticketId) : undefined,
     projectId: dialog.mode === "create" ? dialog.projectId : undefined,
   }));
   const lastProjectId = visibleProjects.some((p) => p.id === app.lastTicketProjectId)
@@ -53,9 +56,11 @@
   });
   const effectiveTitle = $derived(title.trim() || fallbackTitle);
 
-  const editable = $derived(dialog.mode === "create" || ticket?.status === "planning");
+  const editable = $derived(dialog.mode === "create" || (ticket?.status === "planning" && !trashed));
   const project = $derived(projectId !== undefined ? app.projectsById.get(projectId) : undefined);
-  const statusLabel = $derived(COLUMNS.find((c) => c.status === ticket?.status)?.label);
+  const statusLabel = $derived(
+    trashed ? "In the trash" : COLUMNS.find((c) => c.status === ticket?.status)?.label,
+  );
   const dirty = $derived(
     !!ticket && (title !== ticket.title || body !== ticket.body || parallel !== ticket.parallel),
   );
@@ -71,7 +76,8 @@
   let message = $state("");
   let sending = $state(false);
   const canMessage = $derived(
-    ticket?.status === "needs_input" || ticket?.status === "done" || ticket?.status === "in_progress",
+    !trashed &&
+      (ticket?.status === "needs_input" || ticket?.status === "done" || ticket?.status === "in_progress"),
   );
 
   const close = () => (app.ticketDialog = null);
@@ -172,20 +178,20 @@
     if (ticket && (await app.moveTicket(ticket.id, to))) close();
   }
 
-  async function remove() {
+  /** Deleting or closing moves the ticket to the trash, so only unsaved input is worth asking about. */
+  async function trash() {
+    if (ticket && (await confirmDiscard()) && (await app.trashTicket(ticket.id))) close();
+  }
+
+  async function deleteForGood() {
     if (!ticket) return;
     const confirmed = await confirm({
       title: "Delete ticket",
-      message: `Delete "${ticket.title}"? The ticket and its history are deleted.`,
+      message: `Delete "${ticket.title}" for good? The ticket and its history cannot be restored.`,
       okLabel: "Delete",
       danger: true,
     });
     if (confirmed && (await app.deleteTicket(ticket.id))) close();
-  }
-
-  /** Closing a finished ticket needs no confirmation, only a typed comment is worth asking about. */
-  async function closeTicket() {
-    if (ticket && (await confirmDiscard()) && (await app.deleteTicket(ticket.id))) close();
   }
 </script>
 
@@ -276,10 +282,11 @@
       {:else}
         <section class="min-h-0 flex-1 overflow-y-auto">
           <h3 class="mb-2 text-xs font-semibold tracking-wider text-muted uppercase">Prompt</h3>
-          <div class="rounded-lg border border-line bg-raised p-4">
+          <div class="message-block rounded-lg border border-line bg-raised p-4">
             <Markdown source={ticket.body} />
+            <CopyButton text={ticket.body} />
           </div>
-          {#if ticket.status === "ready"}
+          {#if ticket.status === "ready" && !trashed}
             <p class="mt-3 text-sm text-muted">
               {ticket.parallel
                 ? "Waiting for the agent: it starts right away, in parallel."
@@ -330,8 +337,25 @@
       >
         Create &amp; send to Ready
       </button>
+    {:else if trashed}
+      <button class="rounded-md px-3 py-1.5 text-danger hover:bg-raised" onclick={deleteForGood}>
+        Delete for good
+      </button>
+      <button
+        class="ml-auto rounded-md bg-accent px-4 py-1.5 font-medium text-bg"
+        title="Back to the Planning column"
+        onclick={() => ticket && app.restoreTicket(ticket.id)}
+      >
+        Restore
+      </button>
     {:else if ticket?.status === "planning"}
-      <button class="rounded-md px-3 py-1.5 text-danger hover:bg-raised" onclick={remove}> Delete </button>
+      <button
+        class="rounded-md px-3 py-1.5 text-danger hover:bg-raised"
+        title="Moves the ticket to the trash"
+        onclick={trash}
+      >
+        Delete
+      </button>
       {@render parallelToggle()}
       <button
         class="ml-auto rounded-md border border-line px-3 py-1.5 hover:bg-raised disabled:opacity-50"
@@ -349,7 +373,13 @@
         Send to Ready
       </button>
     {:else if ticket?.status === "ready"}
-      <button class="rounded-md px-3 py-1.5 text-danger hover:bg-raised" onclick={remove}> Delete </button>
+      <button
+        class="rounded-md px-3 py-1.5 text-danger hover:bg-raised"
+        title="Moves the ticket to the trash"
+        onclick={trash}
+      >
+        Delete
+      </button>
       <button
         class="ml-auto rounded-md border border-line px-3 py-1.5 hover:bg-raised"
         onclick={() => move("planning")}
@@ -365,7 +395,11 @@
       >
         Send back to Ready
       </button>
-      <button class="rounded-md bg-accent px-4 py-1.5 font-medium text-bg" onclick={closeTicket}>
+      <button
+        class="rounded-md bg-accent px-4 py-1.5 font-medium text-bg"
+        title="Moves the ticket to the trash"
+        onclick={trash}
+      >
         Close ticket
       </button>
     {:else if ticket?.status === "needs_input"}

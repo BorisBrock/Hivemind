@@ -7,6 +7,8 @@ ticket and answer its questions there, instead of juggling a dozen terminal sess
 
 - One agent per project at a time, any number of projects in parallel.
 - Tickets move through **Planning → Ready → In Progress → Needs Input → Done** on a Kanban board.
+  Deleting or closing a ticket moves it to the **Trash** (status bar), where you can search and open
+  it, restore it to Planning, or delete it for good.
 - Paste screenshots (Ctrl+V) into a ticket or reply; the agent receives them as images.
 - Files that an agent mentions become links, and images (also SVG) show as previews below its message.
 - Message an agent while it works ("What are you doing right now?"). Claude Code reads it at its

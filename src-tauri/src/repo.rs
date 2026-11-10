@@ -201,8 +201,20 @@ fn check_color(c: i64) -> AppResult<i64> {
 
 // ---- tickets ----------------------------------------------------------------
 
+/// Tickets on the board, i.e. all but the trashed ones.
 pub async fn list_tickets(db: &SqlitePool) -> AppResult<Vec<Ticket>> {
-    Ok(sqlx::query_as("SELECT * FROM tickets ORDER BY status, position").fetch_all(db).await?)
+    Ok(sqlx::query_as("SELECT * FROM tickets WHERE archived_at IS NULL ORDER BY status, position")
+        .fetch_all(db)
+        .await?)
+}
+
+/// Tickets in the trash, most recently closed first.
+pub async fn list_trashed_tickets(db: &SqlitePool) -> AppResult<Vec<Ticket>> {
+    Ok(sqlx::query_as(
+        "SELECT * FROM tickets WHERE archived_at IS NOT NULL ORDER BY archived_at DESC, id DESC",
+    )
+    .fetch_all(db)
+    .await?)
 }
 
 pub async fn get_ticket(db: &SqlitePool, id: i64) -> AppResult<Ticket> {
@@ -235,6 +247,9 @@ pub async fn create_ticket(db: &SqlitePool, new: NewTicket) -> AppResult<Ticket>
 /// The title can always change; the body (the agent's prompt) and `parallel` only in Planning.
 pub async fn update_ticket(db: &SqlitePool, id: i64, patch: TicketPatch) -> AppResult<Ticket> {
     let mut t = get_ticket(db, id).await?;
+    if t.archived_at.is_some() {
+        return Err(invalid("restore the ticket from the trash to edit it"));
+    }
     if let Some(title) = patch.title {
         t.title = non_empty(&title, "title")?.into();
     }
@@ -271,7 +286,7 @@ pub async fn move_ticket(
     before_id: Option<i64>,
 ) -> AppResult<Ticket> {
     let mut t = get_ticket(db, id).await?;
-    if !t.status.user_can_move_to(to) {
+    if t.archived_at.is_some() || !t.status.user_can_move_to(to) {
         return Err(AppError::InvalidTransition { from: t.status, to });
     }
     let column: Vec<(i64, f64)> =
@@ -311,14 +326,56 @@ pub async fn move_ticket(
     Ok(t)
 }
 
-/// Permanently deletes a ticket and its transcript. Running tickets must be cancelled first.
+/// Permanently deletes a ticket and its transcript. Only tickets in the trash can be deleted.
 pub async fn delete_ticket(db: &SqlitePool, id: i64) -> AppResult<()> {
-    let t = get_ticket(db, id).await?;
-    if matches!(t.status, TicketStatus::InProgress | TicketStatus::NeedsInput) {
-        return Err(invalid("cancel the agent before deleting this ticket"));
+    if get_ticket(db, id).await?.archived_at.is_none() {
+        return Err(invalid("move the ticket to the trash before deleting it"));
     }
     sqlx::query("DELETE FROM tickets WHERE id = ?").bind(id).execute(db).await?;
     Ok(())
+}
+
+/// Permanently deletes every ticket in the trash; returns how many.
+pub async fn empty_trash(db: &SqlitePool) -> AppResult<u64> {
+    Ok(sqlx::query("DELETE FROM tickets WHERE archived_at IS NOT NULL").execute(db).await?.rows_affected())
+}
+
+/// Moves a ticket from the board to the trash, keeping its transcript. Tickets with a running
+/// or waiting agent must be cancelled first.
+pub async fn trash_ticket(db: &SqlitePool, id: i64) -> AppResult<Ticket> {
+    let n = sqlx::query(
+        "UPDATE tickets SET archived_at = ? WHERE id = ? AND archived_at IS NULL
+         AND status NOT IN ('in_progress', 'needs_input')",
+    )
+    .bind(Utc::now())
+    .bind(id)
+    .execute(db)
+    .await?;
+    if n.rows_affected() == 0 {
+        let t = get_ticket(db, id).await?;
+        if t.archived_at.is_none() {
+            return Err(invalid("cancel the agent before deleting this ticket"));
+        }
+    }
+    get_ticket(db, id).await
+}
+
+/// Takes a ticket out of the trash and puts it at the bottom of Planning. Like after a cancel,
+/// its next run starts a new session; the transcript is kept.
+pub async fn restore_ticket(db: &SqlitePool, id: i64) -> AppResult<Ticket> {
+    if get_ticket(db, id).await?.archived_at.is_none() {
+        return Err(invalid("the ticket is not in the trash"));
+    }
+    sqlx::query(
+        "UPDATE tickets SET status = 'planning', archived_at = NULL, agent_session_id = NULL, agent = NULL,
+         pending_prompt = NULL, position = ?, updated_at = ? WHERE id = ?",
+    )
+    .bind(end_of_column(db, TicketStatus::Planning).await?)
+    .bind(Utc::now())
+    .bind(id)
+    .execute(db)
+    .await?;
+    get_ticket(db, id).await
 }
 
 async fn end_of_column(db: &SqlitePool, status: TicketStatus) -> AppResult<f64> {
@@ -343,7 +400,7 @@ pub struct RunPlan {
 
 /// A Ready ticket may start if it is parallel, or if no other sequential ticket of its
 /// project is active. Parallel tickets never take the project's sequential slot.
-const STARTABLE: &str = "t.status = 'ready' AND (t.parallel OR NOT EXISTS (
+const STARTABLE: &str = "t.status = 'ready' AND t.archived_at IS NULL AND (t.parallel OR NOT EXISTS (
     SELECT 1 FROM tickets a WHERE a.project_id = t.project_id AND NOT a.parallel
     AND a.status IN ('in_progress', 'needs_input')))";
 
@@ -419,7 +476,7 @@ pub async fn set_session(db: &SqlitePool, id: i64, session_id: &str, agent: &str
 /// Done → Ready with a comment that becomes the next prompt of the same session.
 pub async fn send_back_to_ready(db: &SqlitePool, id: i64, comment: &str) -> AppResult<Ticket> {
     let t = get_ticket(db, id).await?;
-    if t.status != TicketStatus::Done {
+    if t.status != TicketStatus::Done || t.archived_at.is_some() {
         return Err(AppError::InvalidTransition { from: t.status, to: TicketStatus::Ready });
     }
     let comment = non_empty(comment, "comment")?;
@@ -780,6 +837,66 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn deleted_tickets_go_to_the_trash_and_come_back_to_planning() {
+        let db = db::open_in_memory().await.unwrap();
+        let p = project(&db, "p").await;
+        let t = ticket(&db, p.id, "t").await;
+        let other = ticket(&db, p.id, "other").await;
+        assert!(delete_ticket(&db, t.id).await.is_err(), "only from the trash");
+
+        move_ticket(&db, t.id, TicketStatus::Ready, None).await.unwrap();
+        claim_next_ready(&db, p.id).await.unwrap().unwrap();
+        assert!(trash_ticket(&db, t.id).await.is_err(), "the agent must be cancelled first");
+        set_session(&db, t.id, "sess-1", "claude").await.unwrap();
+        set_status(&db, t.id, TicketStatus::Done).await.unwrap();
+        append_event(&db, t.id, EventData::AssistantText { text: "done".into() }).await.unwrap();
+
+        let trashed = trash_ticket(&db, t.id).await.unwrap();
+        assert!(trashed.archived_at.is_some());
+        let board: Vec<i64> = list_tickets(&db).await.unwrap().into_iter().map(|t| t.id).collect();
+        assert_eq!(board, [other.id]);
+        assert_eq!(list_trashed_tickets(&db).await.unwrap()[0].id, t.id);
+        assert_eq!(list_events(&db, t.id).await.unwrap().len(), 1, "transcript is kept");
+        assert!(send_back_to_ready(&db, t.id, "more").await.is_err(), "not from the trash");
+        let rename = TicketPatch { title: Some("x".into()), ..Default::default() };
+        assert!(update_ticket(&db, t.id, rename).await.is_err(), "read-only in the trash");
+
+        let restored = restore_ticket(&db, t.id).await.unwrap();
+        assert_eq!(
+            (restored.status, restored.archived_at, restored.agent_session_id),
+            (TicketStatus::Planning, None, None)
+        );
+        assert!(restored.position > other.position, "bottom of Planning");
+        assert!(list_trashed_tickets(&db).await.unwrap().is_empty());
+        assert!(restore_ticket(&db, t.id).await.is_err(), "already restored");
+
+        set_status(&db, t.id, TicketStatus::Done).await.unwrap();
+        trash_ticket(&db, t.id).await.unwrap();
+        delete_ticket(&db, t.id).await.unwrap();
+        assert!(matches!(get_ticket(&db, t.id).await, Err(AppError::NotFound)));
+    }
+
+    #[tokio::test]
+    async fn trashed_ready_tickets_never_start_and_the_trash_can_be_emptied() {
+        let db = db::open_in_memory().await.unwrap();
+        let p = project(&db, "p").await;
+        let planned = ticket(&db, p.id, "planned").await;
+        let ready = ticket(&db, p.id, "ready").await;
+        let kept = ticket(&db, p.id, "kept").await;
+        move_ticket(&db, ready.id, TicketStatus::Ready, None).await.unwrap();
+        trash_ticket(&db, planned.id).await.unwrap();
+        trash_ticket(&db, ready.id).await.unwrap();
+        assert!(projects_with_startable(&db).await.unwrap().is_empty());
+        assert!(claim_next_ready(&db, p.id).await.unwrap().is_none());
+        assert!(move_ticket(&db, ready.id, TicketStatus::Planning, None).await.is_err());
+
+        assert_eq!(empty_trash(&db).await.unwrap(), 2);
+        assert!(list_trashed_tickets(&db).await.unwrap().is_empty());
+        let board: Vec<i64> = list_tickets(&db).await.unwrap().into_iter().map(|t| t.id).collect();
+        assert_eq!(board, [kept.id]);
+    }
+
+    #[tokio::test]
     async fn events_are_numbered_and_round_trip() {
         let db = db::open_in_memory().await.unwrap();
         let p = project(&db, "p").await;
@@ -810,6 +927,7 @@ mod tests {
         let t = ticket(&db, p.id, "t").await;
         log_turn(&db, t.id, 1000, 50, 0.25).await.unwrap();
         log_turn(&db, t.id, 500, 25, 0.5).await.unwrap();
+        trash_ticket(&db, t.id).await.unwrap();
         delete_ticket(&db, t.id).await.unwrap();
         let limits = UsageLimits {
             five_hour: Some(UsageWindow { utilization: 0.4, resets_at: None }),

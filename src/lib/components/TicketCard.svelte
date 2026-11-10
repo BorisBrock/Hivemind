@@ -1,27 +1,17 @@
 <script lang="ts">
-  import { app, type Ticket } from "$lib/app.svelte";
+  import { app, ticketPreview, type Ticket } from "$lib/app.svelte";
   import { projectColor } from "$lib/theme";
   import Icon from "./Icon.svelte";
 
   let { ticket }: { ticket: Ticket } = $props();
   const project = $derived(app.projectsById.get(ticket.projectId));
-  // First non-heading line of the prompt as a preview, without markdown syntax.
-  const preview = $derived(
-    (
-      ticket.body
-        .split("\n")
-        .map((l) => l.trim())
-        .find((l) => l && !l.startsWith("#")) ?? ""
-    )
-      .replace(/^([-*+]|\d+\.|>)\s+/, "")
-      .replace(/[*_`~]/g, ""),
-  );
+  const preview = $derived(ticketPreview(ticket.body));
   // Finished tickets can be closed straight from the board, like "Close ticket" in the dialog.
   const closable = $derived(ticket.status === "done");
 
-  async function remove(e: Event) {
+  async function close(e: Event) {
     e.stopPropagation();
-    await app.deleteTicket(ticket.id);
+    await app.trashTicket(ticket.id);
   }
 </script>
 
@@ -48,9 +38,9 @@
     {:else if closable}
       <button
         class="-my-1 -mr-1 ml-auto rounded p-1 text-muted opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 hover:bg-surface hover:text-danger focus-visible:opacity-100"
-        title="Close ticket"
+        title="Close ticket (moves it to the trash)"
         aria-label="Close ticket"
-        onclick={remove}
+        onclick={close}
         onkeydown={(e) => e.stopPropagation()}
       >
         <Icon name="x" size={14} />
