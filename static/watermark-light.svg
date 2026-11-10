@@ -1,0 +1,31 @@
+<!-- Line-art take on design/icon.svg, used as a faint board watermark on light themes. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="170 150 690 720">
+  <g opacity="0.05" fill="#000" stroke="#000" stroke-linejoin="round" stroke-linecap="round">
+    <!-- honey cells: soft fill + outline; empty cells: outline only -->
+    <g fill-opacity="0.35" stroke-width="10">
+      <polygon points="624.0,276.0 568.0,373.0 456.0,373.0 400.0,276.0 456.0,179.0 568.0,179.0"/>
+      <polygon points="828.4,394.0 772.4,491.0 660.4,491.0 604.4,394.0 660.4,297.0 772.4,297.0"/>
+      <polygon points="624.0,748.0 568.0,845.0 456.0,845.0 400.0,748.0 456.0,651.0 568.0,651.0"/>
+      <polygon points="419.6,630.0 363.6,727.0 251.6,727.0 195.6,630.0 251.6,533.0 363.6,533.0"/>
+      <polygon points="624.0,512.0 568.0,609.0 456.0,609.0 400.0,512.0 456.0,415.0 568.0,415.0" fill-opacity="0.6"/>
+    </g>
+    <g fill="none" stroke-width="10" stroke-dasharray="22 14">
+      <polygon points="826.4,630.0 771.4,725.3 661.4,725.3 606.4,630.0 661.4,534.7 771.4,534.7"/>
+      <polygon points="417.6,394.0 362.6,489.3 252.6,489.3 197.6,394.0 252.6,298.7 362.6,298.7"/>
+    </g>
+    <!-- synapses -->
+    <g fill="none" stroke-width="8">
+      <path d="M512 512 512 276 M512 512 716.4 394 M512 512 716.4 630 M512 512 512 748 M512 512 307.6 630 M512 512 307.6 394"/>
+      <path d="M512 276 716.4 394 716.4 630 512 748 307.6 630 307.6 394Z"/>
+    </g>
+    <g stroke="none">
+      <circle cx="512" cy="276" r="22"/>
+      <circle cx="716.4" cy="394" r="22"/>
+      <circle cx="716.4" cy="630" r="22"/>
+      <circle cx="512" cy="748" r="22"/>
+      <circle cx="307.6" cy="630" r="22"/>
+      <circle cx="307.6" cy="394" r="22"/>
+      <circle cx="512" cy="512" r="38"/>
+    </g>
+  </g>
+</svg>

@@ -47,7 +47,7 @@
 </script>
 
 <section
-  class="flex w-72 min-w-60 flex-1 flex-col rounded-xl bg-surface/60 transition-opacity"
+  class="flex w-72 min-w-60 flex-1 flex-col board-watermark rounded-xl bg-surface/60 transition-opacity"
   class:opacity-40={!accepts}
 >
   <header class="flex h-12 items-center gap-2 px-3">

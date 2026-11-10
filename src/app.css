@@ -408,3 +408,24 @@ body {
   border: 1px solid var(--wz-line);
   padding: 0.3em 0.6em;
 }
+
+/* ---- board watermark -------------------------------------------------------- */
+
+/* A faint line-art logo behind the columns. It's fixed to the viewport, so all columns
+   together reveal a single large logo (and it stays put while the board scrolls). */
+:root {
+  --wz-watermark: url("/watermark-dark.svg");
+}
+[data-theme="daylight"],
+[data-theme="solarized-light"],
+[data-theme="catppuccin-latte"],
+[data-theme="paper"] {
+  --wz-watermark: url("/watermark-light.svg");
+}
+.board-watermark {
+  background-image: var(--wz-watermark);
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+  background-position: 60% 55%;
+  background-size: min(180vh, 170vw);
+}
