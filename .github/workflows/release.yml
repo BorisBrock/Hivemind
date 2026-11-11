@@ -1,0 +1,114 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+# Read-only by default. Only the job that publishes the release can write.
+permissions:
+  contents: read
+
+jobs:
+  version:
+    name: Check version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Compare tag and app version
+        id: version
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} isn't a version like v2.0.0 or v2.0.0-rc1"
+            exit 1
+          fi
+          app_version=$(jq -r .version src-tauri/tauri.conf.json)
+          if [[ "$version" != "$app_version" ]]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} doesn't match version $app_version in src-tauri/tauri.conf.json. Run tools/set-version.sh $version, commit and tag again."
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: version
+    uses: ./.github/workflows/build.yml
+
+  release:
+    name: Publish release
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    # Creating a release and uploading its files counts as writing repo
+    # contents. The token is limited to this repo and this job.
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        with:
+          name: ${{ needs.version.outputs.version }}
+          files: dist/*
+          generate_release_notes: true
+          # 0.x versions and versions like 1.0.0-rc1 are pre-releases
+          prerelease: ${{ startsWith(github.ref_name, 'v0.') || contains(github.ref_name, '-') }}
+
+  aur:
+    name: Update AUR package
+    needs: [version, release]
+    # Stable releases only, the AUR package doesn't track pre-releases
+    if: ${{ !startsWith(github.ref_name, 'v0.') && !contains(github.ref_name, '-') }}
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - name: Install tools
+        run: pacman -Syu --noconfirm --needed git openssh
+
+      - uses: actions/checkout@v7
+
+      - name: Install build dependencies
+        run: |
+          source packaging/aur/hivemind/PKGBUILD
+          pacman -S --noconfirm --needed "${depends[@]}" "${makedepends[@]}"
+
+      # makepkg refuses to run as root
+      - name: Create build user
+        run: |
+          useradd -m builder
+          chown -R builder: .
+
+      - name: Set up SSH for the AUR
+        env:
+          AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+        run: |
+          if [[ -z "$AUR_SSH_PRIVATE_KEY" ]]; then
+            echo "::error::Secret AUR_SSH_PRIVATE_KEY is missing, see packaging/aur/README.md"
+            exit 1
+          fi
+          install -d -m 700 -o builder -g builder ~builder/.ssh
+          printf '%s\n' "$AUR_SSH_PRIVATE_KEY" > ~builder/.ssh/aur
+          # Pinned host key, SHA256:RFzBCUItH9LZS0cKB5UE6ceAYhBD5C8GeOBip8Z11+4 as
+          # published on https://aur.archlinux.org
+          echo 'aur.archlinux.org ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEuBKrPzbawxA/k2g6NcyV5jmqwJ2s+zpgZGZ7tpLIcN' > ~builder/.ssh/known_hosts
+          printf 'Host aur.archlinux.org\n  IdentityFile ~/.ssh/aur\n  User aur\n' > ~builder/.ssh/config
+          chmod 600 ~builder/.ssh/*
+          chown -R builder: ~builder/.ssh
+
+      - name: Update and push AUR package
+        run: |
+          su builder -c '
+            set -euo pipefail
+            git config --global user.name "Boris Brock"
+            git config --global user.email "gabrielborisbrock@gmail.com"
+            git config --global init.defaultBranch master
+            git clone ssh://aur@aur.archlinux.org/hivemind.git "$HOME/aur-hivemind"
+            packaging/aur/update-release.sh "$VERSION" "$HOME/aur-hivemind"
+            git -C "$HOME/aur-hivemind" push origin master
+          '

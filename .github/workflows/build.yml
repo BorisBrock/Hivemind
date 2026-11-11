@@ -1,0 +1,99 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  # Called by release.yml to build the packages for a release
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  windows:
+    name: Windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      # Installs the toolchain pinned in rust-toolchain.toml
+      - name: Install Rust
+        run: rustup show active-toolchain || rustup toolchain install
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: release
+
+      - run: npm ci
+
+      # Portable .exe and .zip, plus the NSIS and MSI installers
+      - name: Build and package
+        shell: cmd
+        run: release.bat --installers
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: windows
+          path: |
+            .release/*.exe
+            .release/*.msi
+            .release/*.zip
+          if-no-files-found: error
+
+  linux:
+    name: Linux
+    # The AppImage and .deb run on distributions with this glibc version or newer
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev \
+            libayatana-appindicator3-dev librsvg2-dev patchelf file
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      # Installs the toolchain pinned in rust-toolchain.toml
+      - name: Install Rust
+        run: rustup show active-toolchain || rustup toolchain install
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: release
+
+      - run: npm ci
+
+      # AppImage, .tar.gz and .deb
+      - name: Build and package
+        env:
+          # The runner has no FUSE, so AppImage tools must unpack themselves
+          APPIMAGE_EXTRACT_AND_RUN: 1
+        run: ./release.sh --installers
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: linux
+          path: |
+            .release/*.AppImage
+            .release/*.tar.gz
+            .release/*.deb
+          if-no-files-found: error
