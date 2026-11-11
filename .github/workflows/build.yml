@@ -51,6 +51,8 @@ jobs:
             .release/*.msi
             .release/*.zip
           if-no-files-found: error
+          # .release/ is a dot-directory, which upload-artifact skips by default
+          include-hidden-files: true
 
   linux:
     name: Linux
@@ -97,3 +99,5 @@ jobs:
             .release/*.tar.gz
             .release/*.deb
           if-no-files-found: error
+          # .release/ is a dot-directory, which upload-artifact skips by default
+          include-hidden-files: true
