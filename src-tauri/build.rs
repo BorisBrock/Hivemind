@@ -4,7 +4,8 @@ fn main() {
         // Tauri normally embeds its manifest (Common Controls v6) into the app executable only, so
         // `cargo test` binaries crash on Windows with STATUS_ENTRYPOINT_NOT_FOUND. Embedding it
         // through the linker covers every binary, tests included.
-        attributes = attributes.windows_attributes(tauri_build::WindowsAttributes::new_without_app_manifest());
+        attributes =
+            attributes.windows_attributes(tauri_build::WindowsAttributes::new_without_app_manifest());
         let manifest = std::env::current_dir().unwrap().join("windows-app-manifest.xml");
         println!("cargo:rerun-if-changed={}", manifest.display());
         println!("cargo:rustc-link-arg=/MANIFEST:EMBED");
