@@ -20,6 +20,8 @@ sha256sums=('SKIP')
 
 prepare() {
   cd "$_appname-$pkgver"
+  # The source keeps the placeholder version 0.0.0, the release version comes from the tag
+  tools/set-version.sh "$pkgver"
   npm ci --no-audit --no-fund
   cargo fetch --locked --manifest-path src-tauri/Cargo.toml --target "$(rustc -vV | sed -n 's/host: //p')"
 }

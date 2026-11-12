@@ -39,6 +39,19 @@ jobs:
         with:
           workspaces: src-tauri
 
+      # Git tags are the single source of truth for the version, the release workflow
+      # stamps it in with tools/set-version.sh. A committed version means someone ran it
+      # locally and committed the result.
+      - name: Version placeholder is unchanged
+        shell: bash
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"$/\1/p' src-tauri/Cargo.toml | head -n 1)
+          locked=$(awk 'found && /^version = / { gsub(/"/, "", $3); print $3; exit } { found = ($0 == "name = \"hivemind\"") }' src-tauri/Cargo.lock)
+          if [[ "$version" != "0.0.0" || "$locked" != "0.0.0" ]]; then
+            echo "::error::src-tauri/Cargo.toml ($version) and Cargo.lock ($locked) must stay at 0.0.0. The version comes from the git tag, see docs/RELEASING.md."
+            exit 1
+          fi
+
       - run: npm ci
       - run: npm run lint
       - run: npm test

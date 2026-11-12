@@ -25,6 +25,8 @@ pkgver() {
 
 prepare() {
   cd "$_appname"
+  # The source keeps the placeholder version 0.0.0, use the latest release tag
+  tools/set-version.sh "$(git describe --tags --abbrev=0 --match 'v[0-9]*' | sed 's/^v//')"
   npm ci --no-audit --no-fund
   cargo fetch --locked --manifest-path src-tauri/Cargo.toml --target "$(rustc -vV | sed -n 's/host: //p')"
 }

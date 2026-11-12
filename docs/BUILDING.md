@@ -46,7 +46,9 @@ is no binary yet; after code changes, run `build` again.
 | Linux | `Hivemind-<version>-linux-<arch>.AppImage` (portable, bundles its libraries) and a `.tar.gz` with the bare binary and the README (needs WebKitGTK installed) |
 
 Pass `--installers` to also build the installers and copy them there (NSIS `.exe` and `.msi` on
-Windows, `.deb` on Linux). The version comes from `src-tauri/tauri.conf.json`. Close Hivemind before
+Windows, `.deb` on Linux). The version comes from `src-tauri/Cargo.toml`, which
+is `0.0.0` in the repository; release builds get theirs from the git tag (run
+`tools/set-version.sh 1.2.0` first to build a specific version locally, but don't commit it). Close Hivemind before
 building, because the build overwrites `src-tauri/target/release/hivemind(.exe)`.
 
 Only the installers, built on the platform they are for:

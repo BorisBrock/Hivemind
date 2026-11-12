@@ -9,9 +9,10 @@ cd /d "%~dp0"
 set "INSTALLERS="
 if /i "%~1"=="--installers" set "INSTALLERS=1"
 
-for /f "usebackq delims=" %%v in (`powershell -NoProfile -Command "(Get-Content -Raw src-tauri\tauri.conf.json | ConvertFrom-Json).version"`) do set "VERSION=%%v"
+rem Set by tools/set-version.sh from the git tag; 0.0.0 in untagged builds
+for /f "usebackq delims=" %%v in (`powershell -NoProfile -Command "(Select-String -Path src-tauri\Cargo.toml -Pattern '^version = .(.*).$' | Select-Object -First 1).Matches[0].Groups[1].Value"`) do set "VERSION=%%v"
 if not defined VERSION (
-  echo Could not read the version from src-tauri\tauri.conf.json.
+  echo Could not read the version from src-tauri\Cargo.toml.
   exit /b 1
 )
 

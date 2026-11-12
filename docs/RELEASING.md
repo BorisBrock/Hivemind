@@ -10,24 +10,19 @@ Releases are built and published by GitHub Actions.
 
 ## Publishing a release
 
-1. Set the version (updates `package.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`
-   and the lock files):
+Git tags are the single source of truth for the version. The repository itself keeps the
+placeholder version `0.0.0` in `src-tauri/Cargo.toml` (Tauri takes the app version from there),
+so there is nothing to bump or commit. To release, tag a commit on `main` and push the tag:
 
-   ```bash
-   tools/set-version.sh 1.2.0
-   ```
+```bash
+git tag v1.2.0
+git push origin v1.2.0
+```
 
-2. Commit, tag and push:
-
-   ```bash
-   git commit -am "Release 1.2.0"
-   git tag v1.2.0
-   git push origin main v1.2.0
-   ```
-
-The release workflow checks that the tag matches the version in `tauri.conf.json`, builds the
-packages on Windows and Ubuntu 24.04 and attaches them to a GitHub release named `1.2.0`, with
-release notes generated from the merged pull requests and commits.
+The release workflow takes the version from the tag, stamps it into the build with
+[`tools/set-version.sh`](../tools/set-version.sh), builds the packages on Windows and Ubuntu 24.04
+and attaches them to a GitHub release named `1.2.0`, with release notes generated from the merged
+pull requests and commits.
 
 | Platform | Files |
 |---|---|

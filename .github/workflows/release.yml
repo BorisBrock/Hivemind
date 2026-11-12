@@ -10,14 +10,12 @@ permissions:
 
 jobs:
   version:
-    name: Check version
+    name: Version
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
-      - uses: actions/checkout@v7
-
-      - name: Compare tag and app version
+      - name: Read version from tag
         id: version
         run: |
           version="${GITHUB_REF_NAME#v}"
@@ -25,16 +23,13 @@ jobs:
             echo "::error::Tag ${GITHUB_REF_NAME} isn't a version like v2.0.0 or v2.0.0-rc1"
             exit 1
           fi
-          app_version=$(jq -r .version src-tauri/tauri.conf.json)
-          if [[ "$version" != "$app_version" ]]; then
-            echo "::error::Tag ${GITHUB_REF_NAME} doesn't match version $app_version in src-tauri/tauri.conf.json. Run tools/set-version.sh $version, commit and tag again."
-            exit 1
-          fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
   build:
     needs: version
     uses: ./.github/workflows/build.yml
+    with:
+      version: ${{ needs.version.outputs.version }}
 
   release:
     name: Publish release

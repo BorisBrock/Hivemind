@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
-# Sets the app version in package.json, src-tauri/tauri.conf.json and src-tauri/Cargo.toml
-# (and their lock files). Commit the result, then push a tag "v<version>" to release it.
+# Stamps a version into src-tauri/Cargo.toml and src-tauri/Cargo.lock before a build.
+#
+# Git tags are the single source of truth for the version: the repository keeps the
+# placeholder 0.0.0, and the release workflow and the AUR packages call this script with
+# the version from the tag. Tauri takes the app version from Cargo.toml, so this is the
+# only place that needs it. Don't commit the result.
 #
 # Usage: tools/set-version.sh 1.2.0
 set -euo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../src-tauri"
 
 version="${1:-}"
 if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
@@ -12,10 +16,17 @@ if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
   exit 1
 fi
 
-npm version "$version" --no-git-tag-version --allow-same-version >/dev/null
-sed -i -E "0,/\"version\": \"[^\"]*\"/s//\"version\": \"$version\"/" src-tauri/tauri.conf.json
-sed -i -E "0,/^version = \"[^\"]*\"/s//version = \"$version\"/" src-tauri/Cargo.toml
-cargo metadata --manifest-path src-tauri/Cargo.toml --format-version 1 >/dev/null
+# The first "version = ..." line is the one in [package]
+sed -i -E "0,/^version = \"[^\"]*\"/s//version = \"$version\"/" Cargo.toml
+# The version line right after name = "hivemind", so `cargo --locked` still works
+awk -v v="$version" '
+  found && /^version = / { print "version = \"" v "\""; found = 0; next }
+  { found = ($0 == "name = \"hivemind\""); print }
+' Cargo.lock > Cargo.lock.new
+mv Cargo.lock.new Cargo.lock
 
-echo "Version set to $version. Now:"
-echo "  git commit -am \"Release $version\" && git tag v$version && git push origin main v$version"
+if ! grep -qx "version = \"$version\"" Cargo.toml; then
+  echo "Could not set the version in src-tauri/Cargo.toml" >&2
+  exit 1
+fi
+echo "Version set to $version"

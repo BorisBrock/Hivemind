@@ -7,6 +7,11 @@ on:
   workflow_dispatch:
   # Called by release.yml to build the packages for a release
   workflow_call:
+    inputs:
+      version:
+        description: Version to build, taken from the release tag
+        type: string
+        required: false
 
 permissions:
   contents: read
@@ -37,6 +42,14 @@ jobs:
           key: release
 
       - run: npm ci
+
+      # Tags are the single source of truth for the version. Untagged builds stay at 0.0.0.
+      - name: Set version
+        if: ${{ inputs.version != '' }}
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+        run: bash tools/set-version.sh "$VERSION"
 
       # Portable .exe and .zip, plus the NSIS and MSI installers
       - name: Build and package
@@ -83,6 +96,14 @@ jobs:
           key: release
 
       - run: npm ci
+
+      # Tags are the single source of truth for the version. Untagged builds stay at 0.0.0.
+      - name: Set version
+        if: ${{ inputs.version != '' }}
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+        run: bash tools/set-version.sh "$VERSION"
 
       # AppImage, .tar.gz and .deb
       - name: Build and package

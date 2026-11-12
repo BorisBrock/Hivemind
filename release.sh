@@ -11,7 +11,8 @@ if [ "${1:-}" = "--installers" ]; then
   bundles=appimage,deb
 fi
 
-version=$(node -p "require('./src-tauri/tauri.conf.json').version")
+# Set by tools/set-version.sh from the git tag; 0.0.0 in untagged builds
+version=$(sed -n 's/^version = "\(.*\)"$/\1/p' src-tauri/Cargo.toml | head -n 1)
 case "$(uname -m)" in
   x86_64) arch=x64 ;;
   aarch64 | arm64) arch=arm64 ;;
