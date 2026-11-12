@@ -3,6 +3,7 @@
   import { flip } from "svelte/animate";
   import { app, type Project, type ProjectGroup } from "$lib/app.svelte";
   import { projectColor } from "$lib/theme";
+  import ActivityDot from "./ActivityDot.svelte";
   import Icon from "./Icon.svelte";
   import PathText from "./PathText.svelte";
 
@@ -276,59 +277,9 @@
 {#snippet projectCard(project: Project)}
   {@const active = app.tickets.some((t) => t.projectId === project.id && t.status === "in_progress")}
   <span class="absolute inset-y-2 left-0 w-1 rounded-r bg-(--project)"></span>
-  <div class="flex items-start gap-2" class:opacity-50={project.hidden}>
-    <div class="min-w-0 flex-1">
-      <div class="truncate text-base font-semibold">{project.name}</div>
-      <button
-        class="mt-0.5 flex max-w-full cursor-pointer items-center gap-1.5 text-left text-muted hover:text-fg hover:underline [&>svg]:shrink-0"
-        title="Open {project.path}"
-        onclick={() => app.openFolder(project.path)}
-      >
-        <Icon name="folder" size={12} />
-        <PathText path={project.path} class="font-mono text-xs" />
-      </button>
-      {#if app.branches[project.id]}
-        {#if app.hasGithubDesktop}
-          <button
-            class="mt-0.5 flex max-w-full cursor-pointer items-center gap-1.5 text-left text-muted hover:text-fg hover:underline [&>svg]:shrink-0"
-            title="{app.branches[project.id]} – open in GitHub Desktop"
-            onclick={() => app.openInGithubDesktop(project.path)}
-          >
-            <Icon name="git-branch" size={12} />
-            <span class="min-w-0 truncate font-mono text-xs">{app.branches[project.id]}</span>
-          </button>
-        {:else}
-          <div
-            class="mt-0.5 flex items-center gap-1.5 text-muted [&>svg]:shrink-0"
-            title={app.branches[project.id]}
-          >
-            <Icon name="git-branch" size={12} />
-            <span class="min-w-0 truncate font-mono text-xs">{app.branches[project.id]}</span>
-          </div>
-        {/if}
-      {/if}
-    </div>
-    <span
-      class="mt-1.5 size-2 shrink-0 rounded-full"
-      class:bg-(--project)={active}
-      class:animate-pulse={active}
-      class:bg-line={!active}
-      title={active ? "Agent working" : "Idle"}
-    ></span>
-  </div>
-  <div class="mt-2 flex items-center gap-1">
-    <button
-      class="flex items-center gap-1 rounded border border-line px-1.5 py-0.5 text-xs text-muted hover:bg-surface hover:text-fg disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted"
-      title={project.hidden ? "Show the project to add tickets" : "New ticket"}
-      disabled={project.hidden}
-      onclick={() => (app.ticketDialog = { mode: "create", projectId: project.id })}
-    >
-      <Icon name="plus" size={12} />
-      Ticket
-    </button>
-    <div
-      class="ml-auto flex gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
-    >
+  <div class="flex items-center gap-1" class:opacity-50={project.hidden}>
+    <div class="min-w-0 flex-1 truncate text-base font-semibold">{project.name}</div>
+    <div class="hidden gap-1 group-focus-within:flex group-hover:flex">
       <button
         class="rounded p-1 text-muted hover:bg-surface hover:text-fg"
         title="Edit project"
@@ -344,5 +295,50 @@
         <Icon name={project.hidden ? "eye-off" : "eye"} size={14} />
       </button>
     </div>
+    <button
+      class="rounded p-1 text-muted hover:bg-surface hover:text-fg disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted"
+      title={project.hidden ? "Show the project to add tickets" : "New ticket"}
+      disabled={project.hidden}
+      onclick={() => (app.ticketDialog = { mode: "create", projectId: project.id })}
+    >
+      <Icon name="plus" size={14} />
+    </button>
+    <span class="ml-1 flex">
+      {#if active}
+        <ActivityDot />
+      {:else}
+        <span class="size-2.5 shrink-0 rounded-full bg-line" title="Idle"></span>
+      {/if}
+    </span>
+  </div>
+  <div class:opacity-50={project.hidden}>
+    <button
+      class="mt-0.5 flex max-w-full cursor-pointer items-center gap-1.5 text-left text-muted hover:text-fg hover:underline [&>svg]:shrink-0"
+      title="Open {project.path}"
+      onclick={() => app.openFolder(project.path)}
+    >
+      <Icon name="folder" size={12} />
+      <PathText path={project.path} class="font-mono text-xs" />
+    </button>
+    {#if app.branches[project.id]}
+      {#if app.hasGithubDesktop}
+        <button
+          class="mt-0.5 flex max-w-full cursor-pointer items-center gap-1.5 text-left text-muted hover:text-fg hover:underline [&>svg]:shrink-0"
+          title="{app.branches[project.id]} – open in GitHub Desktop"
+          onclick={() => app.openInGithubDesktop(project.path)}
+        >
+          <Icon name="git-branch" size={12} />
+          <span class="min-w-0 truncate font-mono text-xs">{app.branches[project.id]}</span>
+        </button>
+      {:else}
+        <div
+          class="mt-0.5 flex items-center gap-1.5 text-muted [&>svg]:shrink-0"
+          title={app.branches[project.id]}
+        >
+          <Icon name="git-branch" size={12} />
+          <span class="min-w-0 truncate font-mono text-xs">{app.branches[project.id]}</span>
+        </div>
+      {/if}
+    {/if}
   </div>
 {/snippet}

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { app, ticketPreview, type Ticket } from "$lib/app.svelte";
   import { projectColor } from "$lib/theme";
+  import ActivityDot from "./ActivityDot.svelte";
   import Icon from "./Icon.svelte";
 
   let { ticket }: { ticket: Ticket } = $props();
@@ -32,7 +33,13 @@
       >
     {/if}
     {#if ticket.status === "in_progress"}
-      <span class="ml-auto size-2 animate-pulse rounded-full bg-(--project)" title="Agent working"></span>
+      <span
+        class="ml-auto flex items-center gap-1.5 rounded-full border border-(--project)/40 bg-(--project)/15 py-0.5 pr-2 pl-1.5 text-[10px] text-fg"
+        title="Agent working"
+      >
+        <ActivityDot />
+        Working
+      </span>
     {:else if ticket.status === "needs_input"}
       <span class="ml-auto rounded-full bg-accent px-1.5 text-[10px] text-bg">Your turn</span>
     {:else if closable}
