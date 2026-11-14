@@ -49,7 +49,9 @@ Pass `--installers` to also build the installers and copy them there (NSIS `.exe
 Windows, `.deb` on Linux). The version comes from `src-tauri/Cargo.toml`, which
 is `0.0.0` in the repository; release builds get theirs from the git tag (run
 `tools/set-version.sh 1.2.0` first to build a specific version locally, but don't commit it). Close Hivemind before
-building, because the build overwrites `src-tauri/target/release/hivemind(.exe)`.
+building, because the build overwrites `src-tauri/target/release/hivemind.exe` (Windows) or
+`src-tauri/target/release/hivemind-ai` (Linux, renamed in `src-tauri/tauri.linux.conf.json` because
+`hivemind` is taken by an unrelated tool on Linux).
 
 Only the installers, built on the platform they are for:
 

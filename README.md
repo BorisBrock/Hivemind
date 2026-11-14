@@ -12,7 +12,7 @@
 <p align="center">
   <a href="https://github.com/BorisBrock/Hivemind/releases/latest"><img src="https://img.shields.io/github/v/release/BorisBrock/Hivemind?color=f5a623&label=release" alt="Latest release"></a>
   <a href="https://github.com/BorisBrock/Hivemind/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/BorisBrock/Hivemind/ci.yml?branch=main&label=CI" alt="CI status"></a>
-  <a href="https://aur.archlinux.org/packages/hivemind"><img src="https://img.shields.io/aur/version/hivemind?color=1793d1&logo=archlinux&logoColor=white&label=AUR" alt="AUR version"></a>
+  <a href="https://aur.archlinux.org/packages/hivemind-ai-bin"><img src="https://img.shields.io/aur/version/hivemind-ai-bin?color=1793d1&logo=archlinux&logoColor=white&label=AUR" alt="AUR version"></a>
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux-3a86ff" alt="Platforms: Windows and Linux">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2ec4b6" alt="License: MIT"></a>
 </p>
@@ -115,13 +115,19 @@ Windows SmartScreen may warn about an unknown publisher: click *More info → Ru
 
 ### Arch Linux, CachyOS, Manjaro (AUR)
 
-Install [`hivemind`](https://aur.archlinux.org/packages/hivemind) with an AUR helper:
+Install [`hivemind-ai-bin`](https://aur.archlinux.org/packages/hivemind-ai-bin) with an AUR helper:
 
 ```bash
-paru -S hivemind     # or: yay -S hivemind
+paru -S hivemind-ai-bin     # or: yay -S hivemind-ai-bin
 ```
 
-The package is built from source, which takes a few minutes the first time.
+It installs the prebuilt release in seconds (x86_64) and starts as `hivemind-ai`. To build from
+source instead, install [`hivemind-ai`](https://aur.archlinux.org/packages/hivemind-ai), which takes
+a few minutes, or [`hivemind-ai-git`](https://aur.archlinux.org/packages/hivemind-ai-git) for the
+latest commit on `main`.
+
+Up to 1.0.1 the packages were called `hivemind` and `hivemind-git`. Installing a new one offers to
+remove the old one; your boards and settings stay.
 
 ### Ubuntu, Debian, Linux Mint, Pop!_OS
 

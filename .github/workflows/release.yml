@@ -54,14 +54,21 @@ jobs:
           prerelease: ${{ startsWith(github.ref_name, 'v0.') || contains(github.ref_name, '-') }}
 
   aur:
-    name: Update AUR package
+    name: Update AUR package ${{ matrix.package }}
+    # hivemind-ai-bin downloads the .deb from the published release
     needs: [version, release]
-    # Stable releases only, the AUR package doesn't track pre-releases
+    # Stable releases only, the AUR packages don't track pre-releases
     if: ${{ !startsWith(github.ref_name, 'v0.') && !contains(github.ref_name, '-') }}
     runs-on: ubuntu-latest
     container: archlinux:base-devel
+    strategy:
+      # One package failing shouldn't keep the other from updating
+      fail-fast: false
+      matrix:
+        package: [hivemind-ai, hivemind-ai-bin]
     env:
       VERSION: ${{ needs.version.outputs.version }}
+      PACKAGE: ${{ matrix.package }}
     steps:
       - name: Install tools
         run: pacman -Syu --noconfirm --needed git openssh
@@ -70,7 +77,7 @@ jobs:
 
       - name: Install build dependencies
         run: |
-          source packaging/aur/hivemind/PKGBUILD
+          source "packaging/aur/$PACKAGE/PKGBUILD"
           pacman -S --noconfirm --needed "${depends[@]}" "${makedepends[@]}"
 
       # makepkg refuses to run as root
@@ -103,7 +110,7 @@ jobs:
             git config --global user.name "Boris Brock"
             git config --global user.email "gabrielborisbrock@gmail.com"
             git config --global init.defaultBranch master
-            git clone ssh://aur@aur.archlinux.org/hivemind.git "$HOME/aur-hivemind"
-            packaging/aur/update-release.sh "$VERSION" "$HOME/aur-hivemind"
-            git -C "$HOME/aur-hivemind" push origin master
+            git clone "ssh://aur@aur.archlinux.org/$PACKAGE.git" "$HOME/aur-$PACKAGE"
+            packaging/aur/update-release.sh "$PACKAGE" "$VERSION" "$HOME/aur-$PACKAGE"
+            git -C "$HOME/aur-$PACKAGE" push origin master
           '

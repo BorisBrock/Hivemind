@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Builds a Linux release of Hivemind into .release/:
 #   Hivemind-<version>-linux-<arch>.AppImage   portable executable with its libraries bundled
-#   Hivemind-<version>-linux-<arch>.tar.gz     the bare binary plus README.md (needs WebKitGTK installed)
+#   Hivemind-<version>-linux-<arch>.tar.gz     the bare hivemind-ai binary plus README.md (needs WebKitGTK installed)
 # Pass --installers to also build the .deb package and copy it there.
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -36,7 +36,8 @@ chmod +x "$out/$name.AppImage"
 stage="$out/$name"
 rm -rf "$stage"
 mkdir -p "$stage"
-cp src-tauri/target/release/hivemind "$stage/hivemind"
+# Named in tauri.linux.conf.json, the Cargo binary is renamed by `tauri build`
+cp src-tauri/target/release/hivemind-ai "$stage/hivemind-ai"
 cp README.md "$stage/"
 tar -czf "$out/$name.tar.gz" -C "$out" "$name"
 rm -rf "$stage"
