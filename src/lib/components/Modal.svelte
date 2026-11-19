@@ -68,7 +68,7 @@
     if (e.target === dialog && pressedOnBackdrop) requestClose();
     pressedOnBackdrop = false;
   }}
-  class="m-auto flex max-h-[90vh] flex-col overflow-hidden rounded-xl border border-line bg-surface p-0 text-fg shadow-2xl backdrop:bg-black/50 backdrop:backdrop-blur-[2px]"
+  class="m-auto flex max-h-[90vh] flex-col overflow-hidden rounded-xl border border-line bg-surface p-0 text-fg shadow-2xl backdrop:bg-black/50"
   class:w-[min(1100px,92vw)]={wide}
   class:h-[85vh]={wide}
   class:w-[min(520px,92vw)]={!wide}
